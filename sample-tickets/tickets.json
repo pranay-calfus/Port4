@@ -1,0 +1,162 @@
+[
+  {
+    "id": "billing-double-charge",
+    "title": "Double Charge on Invoice",
+    "categoryLabel": "Billing",
+    "message": "I was charged twice for my monthly subscription on the same day (May 3rd). My card shows two identical charges of $49.99 from your company. Please refund the duplicate charge as soon as possible.",
+    "expectedCategory": "Billing",
+    "expectedPriority": "Medium"
+  },
+  {
+    "id": "refund-request",
+    "title": "Refund Request for Cancelled Order",
+    "categoryLabel": "Refund",
+    "message": "I cancelled my order #48213 within the return window but it's been 10 days and I still haven't received my refund of $120. Can you please process this immediately?",
+    "expectedCategory": "Refund",
+    "expectedPriority": "Medium"
+  },
+  {
+    "id": "feature-request-dark-mode",
+    "title": "Dark Mode Feature Request",
+    "categoryLabel": "Feature Request",
+    "message": "It would be great if the dashboard supported a dark mode theme. Staring at the bright white screen at night is really hard on the eyes. Any plans to add this?",
+    "expectedCategory": "Feature Request",
+    "expectedPriority": "Low"
+  },
+  {
+    "id": "shipping-delayed-delivery",
+    "title": "Delayed Delivery on Order",
+    "categoryLabel": "Shipping",
+    "message": "My order #77291 was supposed to arrive 5 days ago and the tracking page hasn't updated since it left the warehouse. Can someone tell me what's going on with my shipment?",
+    "expectedCategory": "Shipping",
+    "expectedPriority": "Medium"
+  },
+  {
+    "id": "security-breach-report",
+    "title": "Suspicious Account Activity / Possible Breach",
+    "categoryLabel": "Security",
+    "message": "I just got an email saying my password was changed but I didn't do that. I think someone hacked into my account. This is urgent, please lock my account immediately!",
+    "expectedCategory": "Security",
+    "expectedPriority": "High"
+  },
+  {
+    "id": "sales-enterprise-pricing",
+    "title": "Enterprise Pricing Inquiry",
+    "categoryLabel": "Sales",
+    "message": "We're a company of 500 employees looking to roll out your product org-wide. Could someone from sales reach out with enterprise pricing and volume discount options?",
+    "expectedCategory": "Sales",
+    "expectedPriority": "Low"
+  },
+  {
+    "id": "technical-support-setup",
+    "title": "Trouble Configuring Integration",
+    "categoryLabel": "Technical Support",
+    "message": "I'm trying to connect our Slack workspace to your app but the OAuth redirect keeps failing with a 'redirect_uri_mismatch' error. Can you walk me through the correct setup steps?",
+    "expectedCategory": "Technical Support",
+    "expectedPriority": "Medium"
+  },
+  {
+    "id": "bug-report-export",
+    "title": "Export Button Produces Corrupted File",
+    "categoryLabel": "Bug Report",
+    "message": "Every time I click 'Export to CSV' on the reports page, the downloaded file is corrupted and won't open in Excel. This started happening after yesterday's update.",
+    "expectedCategory": "Bug Report",
+    "expectedPriority": "Medium"
+  },
+  {
+    "id": "login-account-access",
+    "title": "Cannot Log Into Account",
+    "categoryLabel": "Account Access",
+    "message": "I can't log in at all. It keeps saying 'invalid credentials' even though I'm 100% sure my password is correct. I've tried three times and I'm locked out of work I need to finish today.",
+    "expectedCategory": "Account Access",
+    "expectedPriority": "High"
+  },
+  {
+    "id": "payment-failure-production",
+    "title": "Payment Processing Down for All Customers",
+    "categoryLabel": "Billing",
+    "message": "Our entire checkout flow is broken - every customer trying to pay gets a 500 error from your payment API. We are losing sales right now. This needs to be fixed immediately.",
+    "expectedCategory": "Billing",
+    "expectedPriority": "High"
+  },
+  {
+    "id": "subscription-cancellation",
+    "title": "Cancel My Subscription",
+    "categoryLabel": "Billing",
+    "message": "Please cancel my Pro subscription effective immediately. I no longer need the service and don't want to be billed again next month.",
+    "expectedCategory": "Billing",
+    "expectedPriority": "Medium"
+  },
+  {
+    "id": "invoice-issue",
+    "title": "Incorrect Amount on Invoice",
+    "categoryLabel": "Billing",
+    "message": "The invoice I received for last month (INV-2291) shows an amount that doesn't match my plan - it's $30 higher than what I agreed to when I signed up. Can you correct this?",
+    "expectedCategory": "Billing",
+    "expectedPriority": "Medium"
+  },
+  {
+    "id": "broken-api-endpoint",
+    "title": "API Endpoint Returning 500 Errors",
+    "categoryLabel": "Technical Support",
+    "message": "Our production integration relies on your /v2/orders endpoint and it has been returning 500 Internal Server Error for the past 20 minutes. This is affecting our live systems.",
+    "expectedCategory": "Technical Support",
+    "expectedPriority": "High"
+  },
+  {
+    "id": "app-crash-report",
+    "title": "Mobile App Crashes on Launch",
+    "categoryLabel": "Bug Report",
+    "message": "The mobile app crashes immediately every time I try to open it after updating to the latest version. I've tried reinstalling but it still crashes on the splash screen.",
+    "expectedCategory": "Bug Report",
+    "expectedPriority": "Medium"
+  },
+  {
+    "id": "account-locked",
+    "title": "Account Locked After Failed Attempts",
+    "categoryLabel": "Account Access",
+    "message": "My account got locked after too many failed login attempts, but those attempts weren't even me. I need access back urgently, I have a client presentation in an hour.",
+    "expectedCategory": "Account Access",
+    "expectedPriority": "High"
+  },
+  {
+    "id": "password-reset",
+    "title": "Password Reset Email Not Received",
+    "categoryLabel": "Account Access",
+    "message": "I requested a password reset link twice but never received the email. I checked spam too. Can you help me reset my password another way?",
+    "expectedCategory": "Account Access",
+    "expectedPriority": "Medium"
+  },
+  {
+    "id": "delayed-delivery-international",
+    "title": "International Order Stuck in Customs",
+    "categoryLabel": "Shipping",
+    "message": "My package has been stuck 'in customs' for two weeks according to the tracking. I ordered it for a birthday that already passed. What are my options at this point?",
+    "expectedCategory": "Shipping",
+    "expectedPriority": "Medium"
+  },
+  {
+    "id": "fraud-unauthorized-charge",
+    "title": "Unauthorized Charge - Possible Fraud",
+    "categoryLabel": "Security",
+    "message": "There is a charge on my account for a plan I never purchased. I think my payment info was compromised. Please investigate and reverse this charge, and help me secure my account.",
+    "expectedCategory": "Security",
+    "expectedPriority": "High"
+  },
+  {
+    "id": "order-missing-item",
+    "title": "Item Missing from Delivered Order",
+    "categoryLabel": "Shipping",
+    "message": "My order arrived today but one of the three items I ordered was missing from the box. The packing slip lists it but it wasn't inside. Can you send the missing item or refund it?",
+    "expectedCategory": "Shipping",
+    "expectedPriority": "Medium"
+  },
+  {
+    "id": "general-inquiry-hours",
+    "title": "General Question About Support Hours",
+    "categoryLabel": "General Inquiry",
+    "message": "Hi, just wondering what your customer support hours are and whether you offer phone support in addition to email? Thanks!",
+    "expectedCategory": "General Inquiry",
+    "expectedPriority": "Low"
+  }
+]

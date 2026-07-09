@@ -1,0 +1,1 @@
+I'm trying to connect our Slack workspace to your app but the OAuth redirect keeps failing with a 'redirect_uri_mismatch' error. Can you walk me through the correct setup steps?
