@@ -22,6 +22,12 @@ def render_result_card(result: TicketRouteResult, processing_time_ms: float) -> 
     confidence_pct = round(result.confidence * 100)
     reasoning = html.escape(result.reasoning)
 
+    model_used_html = ""
+    if result.model_used:
+        model_used_html = (
+            f'Routed via <span class="tr-pill">{html.escape(result.model_used)}</span>'
+        )
+
     low_confidence_html = ""
     if result.confidence < LOW_CONFIDENCE_THRESHOLD:
         low_confidence_html = f"""
@@ -64,8 +70,9 @@ def render_result_card(result: TicketRouteResult, processing_time_ms: float) -> 
                 <div class="tr-muted">Reason</div>
                 <div class="tr-field-value" style="font-weight:400; color:#cbd5e1;">{reasoning}</div>
             </div>
-            <div style="text-align:right; color:#64748b; font-size:0.78rem;">
-                Processed in {processing_time_ms:.0f} ms
+            <div style="display:flex; justify-content:space-between; align-items:center; color:#64748b; font-size:0.78rem;">
+                <span>{model_used_html}</span>
+                <span>Processed in {processing_time_ms:.0f} ms</span>
             </div>
         </div>
         """
@@ -74,35 +81,55 @@ def render_result_card(result: TicketRouteResult, processing_time_ms: float) -> 
     )
 
 
-def render_comparison_section(samples_ms: list[float]) -> None:
+def render_comparison_section(samples_ms: list[float], manual_seconds: float | None = None) -> None:
     """Shows the mission-required manual-vs-AI time comparison. When the
-    session has real measured samples, the numbers are actual evidence
-    (measured `processingTime`), not an illustrative claim.
+    session has real measured AI samples, those numbers are actual evidence
+    (measured `processingTime`), not an illustrative claim. Likewise, once
+    the user has timed themselves via the "Manual Routing" control, the
+    manual side switches from a documented typical baseline to their own
+    measured time for this exact ticket.
     """
     has_data = len(samples_ms) > 0
     avg_ms = sum(samples_ms) / len(samples_ms) if has_data else None
 
+    has_manual_data = manual_seconds is not None
+    manual_baseline_seconds = manual_seconds if has_manual_data else MANUAL_BASELINE_SECONDS
+    manual_display = f"{manual_seconds:.1f} s" if has_manual_data else "~2 min"
+    manual_caption = (
+        "Manual triage (you, measured)" if has_manual_data else "Manual triage (typical)"
+    )
+
     if has_data:
         ai_display = f"{avg_ms:.0f} ms" if avg_ms < 1000 else f"{avg_ms / 1000:.2f} s"
-        improvement_pct = round((1 - (avg_ms / 1000) / MANUAL_BASELINE_SECONDS) * 100)
-        saved_seconds = max(0, round(len(samples_ms) * (MANUAL_BASELINE_SECONDS - avg_ms / 1000)))
+        improvement_pct = round((1 - (avg_ms / 1000) / manual_baseline_seconds) * 100)
+        saved_seconds = max(0, round(len(samples_ms) * (manual_baseline_seconds - avg_ms / 1000)))
         saved_label = f"{saved_seconds // 60} min {saved_seconds % 60} sec"
         ai_caption = "AI routing (your session avg.)"
         pill = f'<span class="tr-pill">{len(samples_ms)} ticket{"s" if len(samples_ms) != 1 else ""} measured</span>'
+        baseline_phrase = (
+            "your own measured manual time"
+            if has_manual_data
+            else f"a {MANUAL_BASELINE_SECONDS // 60}-minute manual triage baseline"
+        )
         footer = (
             f"Based on the {len(samples_ms)} ticket{'s' if len(samples_ms) != 1 else ''} you've routed "
-            f"this session (actual measured processing time), against a {MANUAL_BASELINE_SECONDS // 60}-minute "
-            f"manual triage baseline. Estimated time saved so far: <b>{saved_label}</b>."
+            f"this session (actual measured processing time), against {baseline_phrase}. "
+            f"Estimated time saved so far: <b>{saved_label}</b>."
         )
     else:
-        ai_display, improvement_pct = "~2 sec", 98
+        ai_display, improvement_pct = "~2 sec", round((1 - 2 / manual_baseline_seconds) * 100)
         ai_caption = "AI routing (illustrative)"
         pill = ""
         footer = (
             "Route a ticket above to replace these illustrative numbers with your own measured evidence. "
-            "A support agent typically reads a ticket, decides its category and priority, and manually "
-            "assigns it to the right team - a process that takes roughly two minutes. The AI router "
-            "performs the same triage in a fraction of a second."
+            + (
+                "You've already timed your own manual routing for this ticket - route it with AI above "
+                "to see the real comparison."
+                if has_manual_data
+                else "A support agent typically reads a ticket, decides its category and priority, and "
+                "manually assigns it to the right team - a process that takes roughly two minutes. The "
+                "AI router performs the same triage in a fraction of a second."
+            )
         )
 
     st.markdown(
@@ -114,8 +141,8 @@ def render_comparison_section(samples_ms: list[float]) -> None:
         </div>
         <div style="display:flex; gap:12px; flex-wrap:wrap;">
             <div class="tr-stat" style="flex:1; min-width:140px;">
-                <div class="tr-stat-value" style="color:#cbd5e1;">~2 min</div>
-                <div class="tr-stat-label">Manual triage (typical)</div>
+                <div class="tr-stat-value" style="color:#cbd5e1;">{manual_display}</div>
+                <div class="tr-stat-label">{manual_caption}</div>
             </div>
             <div class="tr-stat" style="flex:1; min-width:140px;">
                 <div class="tr-stat-value" style="color:#a5b4fc;">{ai_display}</div>

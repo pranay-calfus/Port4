@@ -53,7 +53,9 @@ def route_ticket(message: str, provider: AIProvider | None = None) -> TicketRout
 
     first_raw = provider.route_ticket(text)
     try:
-        return _parse_and_validate(first_raw)
+        result = _parse_and_validate(first_raw)
+        result.model_used = getattr(provider, "last_model_used", None)
+        return result
     except (ValueError, PydanticValidationError) as first_error:
         error_summary = summarize_validation_error(first_error)
         logger.warning(
@@ -62,7 +64,9 @@ def route_ticket(message: str, provider: AIProvider | None = None) -> TicketRout
 
     second_raw = provider.route_ticket(text, retry_context=error_summary)
     try:
-        return _parse_and_validate(second_raw)
+        result = _parse_and_validate(second_raw)
+        result.model_used = getattr(provider, "last_model_used", None)
+        return result
     except (ValueError, PydanticValidationError) as second_error:
         final_summary = summarize_validation_error(second_error)
         logger.error("AI response failed validation after retry", {"error": final_summary})

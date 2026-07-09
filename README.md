@@ -16,9 +16,11 @@ A single Python process: [Streamlit](https://streamlit.io) for the UI, [Groq](ht
 - [Prompt Engineering](#prompt-engineering)
 - [JSON Reliability & Validation](#json-reliability--validation)
 - [Retry Strategy](#retry-strategy)
+- [Model Fallback](#model-fallback)
 - [Edge Cases](#edge-cases)
 - [Sample Tickets & Demo Mode](#sample-tickets--demo-mode)
 - [Manual vs. AI Time Comparison](#manual-vs-ai-time-comparison)
+- [Model Used](#model-used)
 - [Testing](#testing)
 - [Code Quality](#code-quality)
 - [Screenshots](#screenshots)
@@ -85,12 +87,14 @@ Edit `.env` and set your `GROQ_API_KEY`.
 ```env
 GROQ_API_KEY=
 GROQ_MODEL=llama-3.3-70b-versatile
+# GROQ_FALLBACK_MODELS=llama-3.1-8b-instant,meta-llama/llama-4-scout-17b-16e-instruct
 ```
 
 | Variable | Description | Default |
 |---|---|---|
 | `GROQ_API_KEY` | Your Groq API key (see [Getting a Groq API Key](#getting-a-groq-api-key)) | — |
 | `GROQ_MODEL` | Groq model id | `llama-3.3-70b-versatile` |
+| `GROQ_FALLBACK_MODELS` | Optional comma-separated override for the fallback chain (see [Model Fallback](#model-fallback)) | built-in default chain |
 
 **No API key is ever hardcoded.** If `GROQ_API_KEY` is missing, the app still boots - the UI loads and the "Try an example" dropdown works, but clicking "Route Ticket" surfaces a clean, specific error (`AI_UNAVAILABLE`) instead of crashing.
 
@@ -144,6 +148,32 @@ Six layers of defense guarantee the app always ends up with valid, schema-confor
 
 [`ticket_router/services/ticket_routing_service.py`](ticket_router/services/ticket_routing_service.py) implements the full pipeline: call → parse/validate (with repair fallback) → (if invalid) retry once with error context → parse/validate again → (if still invalid) raise a typed error. This is a single bounded retry, not an unbounded loop, keeping latency and cost predictable.
 
+## Model Fallback
+
+Retries alone don't help if the configured model itself is unavailable (Groq's free tier has fairly low per-model rate limits, and models occasionally get decommissioned or hit transient 5xx errors). [`ticket_router/ai/groq_provider.py`](ticket_router/ai/groq_provider.py) handles this at the model level, independently of the validation retry above.
+
+`GROQ_MODEL` is tried first, then every other model currently on Groq is tried in turn, explicitly listed in [`DEFAULT_FALLBACK_MODELS`](ticket_router/ai/groq_provider.py) - general-purpose instruct/chat models first (most likely to succeed), moderation-only and agentic models last (included for completeness, but less likely to behave like a plain forced-tool-call model):
+
+```
+llama-3.3-70b-versatile (primary)
+  → llama-3.1-8b-instant
+  → meta-llama/llama-4-scout-17b-16e-instruct
+  → openai/gpt-oss-120b
+  → openai/gpt-oss-20b
+  → qwen/qwen3-32b
+  → qwen/qwen3.6-27b
+  → allam-2-7b
+  → openai/gpt-oss-safeguard-20b
+  → groq/compound
+  → groq/compound-mini
+  → meta-llama/llama-prompt-guard-2-22m
+  → meta-llama/llama-prompt-guard-2-86m
+```
+
+- On failure (rate limit, timeout, 5xx, or a response with no tool call), it automatically falls through to the next model in the chain above. Override the whole chain with `GROQ_FALLBACK_MODELS` in `.env` if you want a different list or order.
+- **Authentication/permission errors fail fast** without burning the rest of the chain - a bad API key fails identically on every model, so there's no point retrying it thirteen times.
+- If every model in the chain fails, a single `AIUnavailableError` is raised listing every model attempted.
+
 ## Edge Cases
 
 | Case | Behavior |
@@ -161,7 +191,16 @@ Six layers of defense guarantee the app always ends up with valid, schema-confor
 
 ## Manual vs. AI Time Comparison
 
-The comparison panel on the Router tab starts with an illustrative "~2 sec" AI estimate, but the moment you route a real ticket it switches to **actual measured evidence**: your session's real average `processingTime` (in ms) against a documented 2-minute manual-triage baseline, plus a running "time saved so far" total. This is live evidence, not a static claim - the number changes as you use the app.
+The comparison panel on the Router tab starts with an illustrative "~2 sec" AI estimate against a documented 2-minute manual-triage baseline, but it upgrades to real evidence as you use the app:
+
+- **AI side**: the moment you route a real ticket, the AI number switches to your session's actual average `processingTime` (in ms), plus a running "time saved so far" total.
+- **Manual side**: click **"Start Manual Timer"** in the "Manual Routing" panel, pick a category/priority/team yourself the way a human triager would, then **"Submit Manual Routing"** to stop the clock. That measured time (not the 2-minute assumption) becomes the manual baseline for the comparison above, until you reset it.
+
+Both sides are real, timed evidence for the same ticket, not static claims.
+
+## Model Used
+
+Every result card shows a **"Routed via `<model>`"** pill next to the processing time, naming whichever Groq model actually produced that classification. Normally that's `GROQ_MODEL`, but if the [model fallback](#model-fallback) chain kicked in, it names the fallback model instead - so it's always visible which model is responsible for a given result, not just that "the AI" answered.
 
 ## Testing
 
@@ -170,10 +209,11 @@ source .venv/bin/activate
 pytest -v
 ```
 
-19 tests across two files, run against a fake AI provider (no live API calls):
+24 tests across three files, run against a fake AI provider (no live API calls):
 
 - `tests/test_validation.py` — 10 consecutive tests asserting `TicketRouteResult` accepts well-formed AI output and rejects malformed output (missing fields, invalid enums, out-of-range confidence, wrong types).
 - `tests/test_retry.py` — empty-input rejection, JSON repair (code fences, trailing commas, prose-wrapped JSON), the single-retry-then-succeed path, the both-attempts-fail path, and the AI-unavailable path.
+- `tests/test_groq_fallback.py` — falling back to the next model on an API error, falling back when a model returns no tool call, exhausting the whole chain, failing fast on an authentication error, and succeeding on the primary model without falling back at all.
 
 ## Code Quality
 

@@ -14,7 +14,7 @@ import time
 import streamlit as st
 
 from ticket_router.errors import AppError
-from ticket_router.models import TicketRequest
+from ticket_router.models import ASSIGNED_TEAMS, CATEGORIES, PRIORITIES, TicketRequest
 from ticket_router.services.ticket_routing_service import route_ticket
 from ticket_router.ui.components import (
     render_comparison_section,
@@ -40,6 +40,12 @@ if "demo_index" not in st.session_state:
     st.session_state.demo_index = 0
 if "demo_history" not in st.session_state:
     st.session_state.demo_history = {}
+if "manual_start_time" not in st.session_state:
+    st.session_state.manual_start_time = None
+if "manual_time_seconds" not in st.session_state:
+    st.session_state.manual_time_seconds = None
+if "manual_answer" not in st.session_state:
+    st.session_state.manual_answer = None
 
 
 def classify(message: str) -> tuple[object | None, str | None, float]:
@@ -63,11 +69,11 @@ st.markdown(
     flatten_html(
         """
     <div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;">
-        <div style="width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg,#6366f1,#a855f7);
+        <div style="width:36px; height:36px; border-radius:10px; background:##f6f5f7;
                     display:flex; align-items:center; justify-content:center; font-weight:800; color:white;">ST</div>
         <div>
             <div style="font-weight:700; color:#f1f5f9; font-size:1rem; line-height:1.1;">Smart Ticket Router</div>
-            <div style="color:#94a3b8; font-size:0.78rem;">AI-powered support triage &middot; Python + Streamlit + Groq</div>
+            <div style="color:#94a3b8; font-size:0.78rem;">AI-powered support triage &middot;</div>
         </div>
     </div>
     """
@@ -124,6 +130,9 @@ with router_tab:
             st.session_state.ticket_text = ""
             st.session_state.result = None
             st.session_state.error = None
+            st.session_state.manual_start_time = None
+            st.session_state.manual_time_seconds = None
+            st.session_state.manual_answer = None
             st.rerun()
 
         if route_clicked:
@@ -153,6 +162,7 @@ with router_tab:
             payload = {
                 "success": True,
                 "data": result.model_dump(by_alias=True),
+                "modelUsed": result.model_used,
                 "processingTime": f"{elapsed_ms:.0f} ms",
             }
             st.markdown(
@@ -163,7 +173,58 @@ with router_tab:
 
     st.write("")
     with st.container(border=True):
-        render_comparison_section(st.session_state.session_samples)
+        st.markdown(
+            '<div class="tr-muted">MANUAL ROUTING (for comparison)</div>',
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Time yourself triaging this ticket the way a support agent would - pick a "
+            "category, priority, and team - then compare that against the AI below."
+        )
+
+        if (
+            st.session_state.manual_start_time is None
+            and st.session_state.manual_time_seconds is None
+        ):
+            if st.button("Start Manual Timer", use_container_width=False):
+                st.session_state.manual_start_time = time.perf_counter()
+                st.rerun()
+
+        if st.session_state.manual_start_time is not None:
+            st.info("Timer running - choose your answer below, then submit.")
+            m_col1, m_col2, m_col3 = st.columns(3)
+            manual_category = m_col1.selectbox("Category", CATEGORIES, key="manual_category")
+            manual_priority = m_col2.selectbox("Priority", PRIORITIES, key="manual_priority")
+            manual_team = m_col3.selectbox("Team", ASSIGNED_TEAMS, key="manual_team")
+            if st.button("Submit Manual Routing", type="primary"):
+                st.session_state.manual_time_seconds = (
+                    time.perf_counter() - st.session_state.manual_start_time
+                )
+                st.session_state.manual_start_time = None
+                st.session_state.manual_answer = {
+                    "category": manual_category,
+                    "priority": manual_priority,
+                    "assignedTeam": manual_team,
+                }
+                st.rerun()
+
+        if st.session_state.manual_time_seconds is not None:
+            st.success(
+                f"Manual routing took {st.session_state.manual_time_seconds:.1f} seconds. "
+                "Route the same ticket with AI above to compare."
+            )
+            if st.button("Reset manual timer"):
+                st.session_state.manual_start_time = None
+                st.session_state.manual_time_seconds = None
+                st.session_state.manual_answer = None
+                st.rerun()
+
+    st.write("")
+    with st.container(border=True):
+        render_comparison_section(
+            st.session_state.session_samples,
+            manual_seconds=st.session_state.manual_time_seconds,
+        )
 
 with demo_tab:
     with st.container(border=True):

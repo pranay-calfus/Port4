@@ -54,6 +54,10 @@ class TicketRouteResult(BaseModel):
     assigned_team: AssignedTeam = Field(alias="assignedTeam")
     reasoning: str = Field(min_length=1)
     confidence: float = Field(ge=0, le=1)
+    # Not part of the AI's output contract - set by the routing service
+    # after a successful call, purely so the UI can show which model
+    # actually answered (relevant once model fallback kicks in).
+    model_used: str | None = Field(default=None, exclude=True)
 
 
 class TicketRequest(BaseModel):
