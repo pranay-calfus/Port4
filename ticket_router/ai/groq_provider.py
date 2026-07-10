@@ -1,16 +1,13 @@
-from typing import Any
-
 import openai
 from openai import OpenAI
 
+from ticket_router.ai.tool_schema import ROUTE_TICKET_TOOL, ROUTE_TICKET_TOOL_NAME
 from ticket_router.config import config
 from ticket_router.errors import AIUnavailableError
 from ticket_router.logger import logger
-from ticket_router.models import ASSIGNED_TEAMS, CATEGORIES, PRIORITIES
 from ticket_router.prompts import SYSTEM_PROMPT
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-ROUTE_TICKET_TOOL_NAME = "route_ticket"
 
 # Every model currently available on Groq, listed explicitly so each one is
 # tried in turn until one succeeds. Order matters: general-purpose
@@ -43,33 +40,6 @@ DEFAULT_FALLBACK_MODELS: tuple[str, ...] = (
 # instead of burning the whole fallback chain on a bad key.
 _NON_RETRYABLE_EXCEPTIONS = (openai.AuthenticationError, openai.PermissionDeniedError)
 
-# Forcing the model to call this tool is our primary structured-output
-# guarantee (Layer 2 of JSON reliability, see docs/AI-Concepts.md). Groq
-# exposes an OpenAI-compatible Chat Completions API, so we talk to it with
-# the official `openai` SDK, just pointed at a different base URL.
-ROUTE_TICKET_TOOL: dict[str, Any] = {
-    "type": "function",
-    "function": {
-        "name": ROUTE_TICKET_TOOL_NAME,
-        "description": "Classify a support ticket and return the routing decision.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "category": {"type": "string", "enum": list(CATEGORIES)},
-                "priority": {"type": "string", "enum": list(PRIORITIES)},
-                "assignedTeam": {"type": "string", "enum": list(ASSIGNED_TEAMS)},
-                "reasoning": {
-                    "type": "string",
-                    "description": "One sentence justifying the decision, citing a specific signal from the ticket.",
-                },
-                "confidence": {"type": "number", "description": "A number between 0 and 1."},
-            },
-            "required": ["category", "priority", "assignedTeam", "reasoning", "confidence"],
-            "additionalProperties": False,
-        },
-    },
-}
-
 
 def _build_model_chain() -> list[str]:
     """The configured primary model first, then fallbacks (deduplicated,
@@ -92,7 +62,8 @@ def _build_model_chain() -> list[str]:
 
 
 class GroqProvider:
-    """The application's only AI provider, talking to Groq's OpenAI-compatible
+    """The application's backup AI provider (see CombinedProvider for the
+    OpenAI-first, Groq-backup ordering), talking to Groq's OpenAI-compatible
     Chat Completions API via the official `openai` SDK, just pointed at a
     different base URL.
 

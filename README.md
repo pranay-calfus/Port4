@@ -2,13 +2,13 @@
 
 An AI-powered support ticket triage system. Paste any customer support message and get back a structured, always-valid classification: **category**, **priority**, **assigned team**, **one-line reasoning**, and a **confidence score** — in seconds instead of minutes.
 
-A single Python process: [Streamlit](https://streamlit.io) for the UI, [Groq](https://groq.com) (via its OpenAI-compatible API) for classification, and [Pydantic](https://docs.pydantic.dev) for strict validation, with automatic retries and JSON repair guaranteeing the app never crashes and never shows malformed data.
+A single Python process: [Streamlit](https://streamlit.io) for the UI, [OpenAI](https://platform.openai.com) as the default classification provider with [Groq](https://groq.com) (via its OpenAI-compatible API) as an automatic backup, and [Pydantic](https://docs.pydantic.dev) for strict validation, with automatic retries and JSON repair guaranteeing the app never crashes and never shows malformed data.
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [Architecture](#architecture)
-- [Getting a Groq API Key](#getting-a-groq-api-key)
+- [Getting API Keys](#getting-api-keys)
 - [Installation](#installation)
 - [Environment Variables](#environment-variables)
 - [Running the App](#running-the-app)
@@ -16,7 +16,7 @@ A single Python process: [Streamlit](https://streamlit.io) for the UI, [Groq](ht
 - [Prompt Engineering](#prompt-engineering)
 - [JSON Reliability & Validation](#json-reliability--validation)
 - [Retry Strategy](#retry-strategy)
-- [Model Fallback](#model-fallback)
+- [Provider & Model Fallback](#provider--model-fallback)
 - [Edge Cases](#edge-cases)
 - [Sample Tickets & Demo Mode](#sample-tickets--demo-mode)
 - [Manual vs. AI Time Comparison](#manual-vs-ai-time-comparison)
@@ -35,14 +35,17 @@ Support teams spend a meaningful amount of time simply _sorting_ incoming ticket
 smart-ticket-router (repo root)
 ├── app.py                     Streamlit entrypoint - Router tab + Demo Mode tab
 ├── ticket_router/             the reusable package
-│   ├── config.py              env loading (GROQ_API_KEY, GROQ_MODEL)
+│   ├── config.py              env loading (OPENAI_API_KEY/MODEL, GROQ_API_KEY/MODEL)
 │   ├── models.py              Pydantic models: TicketRouteResult, TicketRequest, enums
 │   ├── errors.py              AppError hierarchy (ValidationError, AIUnavailableError, AIResponseError)
 │   ├── logger.py              structured JSON logging
 │   ├── prompts.py             system prompt + 12 few-shot examples
 │   ├── ai/
 │   │   ├── base.py             AIProvider Protocol
-│   │   └── groq_provider.py    the app's only AI provider (Groq via the `openai` SDK)
+│   │   ├── tool_schema.py      the shared route_ticket function-calling schema
+│   │   ├── openai_provider.py  the default provider (OpenAI via the `openai` SDK)
+│   │   ├── groq_provider.py    the backup provider (Groq via the `openai` SDK), with its own 13-model fallback chain
+│   │   └── combined_provider.py  OpenAI-first, Groq-backup - what route_ticket() actually calls
 │   ├── services/
 │   │   ├── json_repair.py      code-fence stripping / brace extraction / trailing-comma fixes
 │   │   ├── prompt_service.py   truncation + error summarizing
@@ -57,13 +60,23 @@ smart-ticket-router (repo root)
 └── docs/                      AI-Concepts.md (plain-English explanation for reviewers/mentors)
 ```
 
-The AI layer sits behind an `AIProvider` [Protocol](ticket_router/ai/base.py) implemented by [`GroqProvider`](ticket_router/ai/groq_provider.py), the app's only AI provider — this is what lets tests inject a fake provider instead of making real network calls.
+The AI layer sits behind an `AIProvider` [Protocol](ticket_router/ai/base.py). `route_ticket()` calls [`CombinedProvider`](ticket_router/ai/combined_provider.py) by default, which tries [`OpenAIProvider`](ticket_router/ai/openai_provider.py) first and falls back to [`GroqProvider`](ticket_router/ai/groq_provider.py) — this is also what lets tests inject a fake provider instead of making real network calls.
 
-## Getting a Groq API Key
+## Getting API Keys
+
+**OpenAI (default provider):**
+
+1. Create an account at [platform.openai.com](https://platform.openai.com).
+2. Open **API Keys** and create a new key.
+3. Copy it into `OPENAI_API_KEY` in `.env` (see [Environment Variables](#environment-variables)). Never commit this key.
+
+**Groq (backup provider — optional, but recommended):**
 
 1. Create a free account at [console.groq.com](https://console.groq.com).
 2. Open **API Keys** in the console and create a new key.
-3. Copy it into `GROQ_API_KEY` in `.env` (see [Environment Variables](#environment-variables)). Never commit this key.
+3. Copy it into `GROQ_API_KEY` in `.env`. Never commit this key.
+
+The app works with either key alone. With only `OPENAI_API_KEY` set, it just never falls back. With only `GROQ_API_KEY` set, every request goes straight to Groq's model chain (OpenAI is skipped since it's unconfigured). With both set, you get the full two-tier fallback described in [Provider & Model Fallback](#provider--model-fallback).
 
 ## Installation
 
@@ -78,13 +91,16 @@ pip install -r requirements-dev.txt   # or requirements.txt for a runtime-only i
 cp .env.example .env
 ```
 
-Edit `.env` and set your `GROQ_API_KEY`.
+Edit `.env` and set at least one of `OPENAI_API_KEY` / `GROQ_API_KEY` (ideally both).
 
 ## Environment Variables
 
 `.env`:
 
 ```env
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
+
 GROQ_API_KEY=
 GROQ_MODEL=llama-3.3-70b-versatile
 # GROQ_FALLBACK_MODELS=llama-3.1-8b-instant,meta-llama/llama-4-scout-17b-16e-instruct
@@ -92,11 +108,13 @@ GROQ_MODEL=llama-3.3-70b-versatile
 
 | Variable | Description | Default |
 |---|---|---|
-| `GROQ_API_KEY` | Your Groq API key (see [Getting a Groq API Key](#getting-a-groq-api-key)) | — |
-| `GROQ_MODEL` | Groq model id | `llama-3.3-70b-versatile` |
-| `GROQ_FALLBACK_MODELS` | Optional comma-separated override for the fallback chain (see [Model Fallback](#model-fallback)) | built-in default chain |
+| `OPENAI_API_KEY` | Your OpenAI API key — the default provider (see [Getting API Keys](#getting-api-keys)) | — |
+| `OPENAI_MODEL` | OpenAI model id | `gpt-4o-mini` |
+| `GROQ_API_KEY` | Your Groq API key — the backup provider | — |
+| `GROQ_MODEL` | Groq model id (first one tried in the backup chain) | `llama-3.3-70b-versatile` |
+| `GROQ_FALLBACK_MODELS` | Optional comma-separated override for Groq's own fallback chain (see [Provider & Model Fallback](#provider--model-fallback)) | built-in default chain |
 
-**No API key is ever hardcoded.** If `GROQ_API_KEY` is missing, the app still boots - the UI loads and the "Try an example" dropdown works, but clicking "Route Ticket" surfaces a clean, specific error (`AI_UNAVAILABLE`) instead of crashing.
+**No API key is ever hardcoded.** If both keys are missing, the app still boots - the UI loads and the "Try an example" dropdown works, but clicking "Route Ticket" surfaces a clean, specific error (`AI_UNAVAILABLE`) instead of crashing.
 
 ## Running the App
 
@@ -138,7 +156,7 @@ The system prompt ([`ticket_router/prompts.py`](ticket_router/prompts.py)) is st
 Six layers of defense guarantee the app always ends up with valid, schema-conforming data:
 
 1. **Prompt engineering** — the system prompt above.
-2. **Forced structured output** — Groq's OpenAI-compatible Chat Completions API is called with a `route_ticket` function tool and `tool_choice` forcing that exact tool call, so the model cannot reply with free text.
+2. **Forced structured output** — whichever provider answers (OpenAI or Groq, both OpenAI-compatible Chat Completions APIs) is called with a `route_ticket` function tool and `tool_choice` forcing that exact tool call, so the model cannot reply with free text.
 3. **Pydantic validation** — every result is parsed and validated against [`ticket_router/models.py`](ticket_router/models.py)'s `TicketRouteResult`, regardless of how it arrived.
 4. **Automatic single retry** — on validation failure, the AI is called again with the error appended as context.
 5. **JSON repair** — [`ticket_router/services/json_repair.py`](ticket_router/services/json_repair.py) strips code fences, extracts the first balanced `{...}` block, and fixes trailing commas, for the case the model's tool-call arguments aren't clean JSON.
@@ -148,11 +166,19 @@ Six layers of defense guarantee the app always ends up with valid, schema-confor
 
 [`ticket_router/services/ticket_routing_service.py`](ticket_router/services/ticket_routing_service.py) implements the full pipeline: call → parse/validate (with repair fallback) → (if invalid) retry once with error context → parse/validate again → (if still invalid) raise a typed error. This is a single bounded retry, not an unbounded loop, keeping latency and cost predictable.
 
-## Model Fallback
+## Provider & Model Fallback
 
-Retries alone don't help if the configured model itself is unavailable (Groq's free tier has fairly low per-model rate limits, and models occasionally get decommissioned or hit transient 5xx errors). [`ticket_router/ai/groq_provider.py`](ticket_router/ai/groq_provider.py) handles this at the model level, independently of the validation retry above.
+Retries alone don't help if the provider or model itself is unavailable (missing key, rate limit, outage, decommissioned model, etc.). This is handled at two independent levels, both underneath the validation retry above:
 
-`GROQ_MODEL` is tried first, then every other model currently on Groq is tried in turn, explicitly listed in [`DEFAULT_FALLBACK_MODELS`](ticket_router/ai/groq_provider.py) - general-purpose instruct/chat models first (most likely to succeed), moderation-only and agentic models last (included for completeness, but less likely to behave like a plain forced-tool-call model):
+**1. Provider-level fallback — OpenAI first, Groq as backup.** [`ticket_router/ai/combined_provider.py`](ticket_router/ai/combined_provider.py) tries [`OpenAIProvider`](ticket_router/ai/openai_provider.py) (`OPENAI_MODEL`) first, since `OPENAI_API_KEY` is the default key. If OpenAI fails for *any* reason — no key configured, invalid key, rate limit, outage, or a response without a structured tool call — it falls back to [`GroqProvider`](ticket_router/ai/groq_provider.py) entirely, not just a different model:
+
+```
+OpenAI (OPENAI_MODEL, default gpt-4o-mini)
+  ↓ on any failure
+Groq (GROQ_MODEL + full fallback chain below)
+```
+
+**2. Model-level fallback within Groq.** `GroqProvider` tries `GROQ_MODEL` first, then every other model currently on Groq in turn, explicitly listed in [`DEFAULT_FALLBACK_MODELS`](ticket_router/ai/groq_provider.py) - general-purpose instruct/chat models first (most likely to succeed), moderation-only and agentic models last (included for completeness, but less likely to behave like a plain forced-tool-call model):
 
 ```
 llama-3.3-70b-versatile (primary)
@@ -170,9 +196,9 @@ llama-3.3-70b-versatile (primary)
   → meta-llama/llama-prompt-guard-2-86m
 ```
 
-- On failure (rate limit, timeout, 5xx, or a response with no tool call), it automatically falls through to the next model in the chain above. Override the whole chain with `GROQ_FALLBACK_MODELS` in `.env` if you want a different list or order.
-- **Authentication/permission errors fail fast** without burning the rest of the chain - a bad API key fails identically on every model, so there's no point retrying it thirteen times.
-- If every model in the chain fails, a single `AIUnavailableError` is raised listing every model attempted.
+- Within the Groq chain, on failure (rate limit, timeout, 5xx, or a response with no tool call), it automatically falls through to the next model. Override the whole chain with `GROQ_FALLBACK_MODELS` in `.env` if you want a different list or order.
+- **Authentication/permission errors fail fast** without burning the rest of the Groq chain - a bad API key fails identically on every model, so there's no point retrying it thirteen times.
+- If OpenAI fails *and* every model in the Groq chain fails, a single `AIUnavailableError` is raised.
 
 ## Edge Cases
 
@@ -200,7 +226,7 @@ Both sides are real, timed evidence for the same ticket, not static claims.
 
 ## Model Used
 
-Every result card shows a **"Routed via `<model>`"** pill next to the processing time, naming whichever Groq model actually produced that classification. Normally that's `GROQ_MODEL`, but if the [model fallback](#model-fallback) chain kicked in, it names the fallback model instead - so it's always visible which model is responsible for a given result, not just that "the AI" answered.
+Every result card shows a **"Routed via `<model>`"** pill next to the processing time, naming whichever model actually produced that classification - e.g. `openai/gpt-4o-mini` when OpenAI answered, or a bare Groq model id like `llama-3.1-8b-instant` when [provider or model fallback](#provider--model-fallback) kicked in. It's always visible which model is responsible for a given result, not just that "the AI" answered.
 
 ## Testing
 
@@ -209,11 +235,13 @@ source .venv/bin/activate
 pytest -v
 ```
 
-24 tests across three files, run against a fake AI provider (no live API calls):
+31 tests across five files, run against fake AI providers (no live API calls):
 
 - `tests/test_validation.py` — 10 consecutive tests asserting `TicketRouteResult` accepts well-formed AI output and rejects malformed output (missing fields, invalid enums, out-of-range confidence, wrong types).
 - `tests/test_retry.py` — empty-input rejection, JSON repair (code fences, trailing commas, prose-wrapped JSON), the single-retry-then-succeed path, the both-attempts-fail path, and the AI-unavailable path.
-- `tests/test_groq_fallback.py` — falling back to the next model on an API error, falling back when a model returns no tool call, exhausting the whole chain, failing fast on an authentication error, and succeeding on the primary model without falling back at all.
+- `tests/test_openai_provider.py` — the primary provider succeeding and recording the model used, a missing API key, a call failure, and a response with no tool call all raising `AIUnavailableError`.
+- `tests/test_groq_fallback.py` — falling back to the next Groq model on an API error, falling back when a model returns no tool call, exhausting the whole chain, failing fast on an authentication error, and succeeding on the primary model without falling back at all.
+- `tests/test_combined_provider.py` — using OpenAI first when it succeeds, and falling back to Groq entirely when OpenAI's key is missing or its call fails.
 
 ## Code Quality
 

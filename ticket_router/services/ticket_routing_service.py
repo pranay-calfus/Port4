@@ -3,7 +3,7 @@ import json
 from pydantic import ValidationError as PydanticValidationError
 
 from ticket_router.ai.base import AIProvider
-from ticket_router.ai.groq_provider import GroqProvider
+from ticket_router.ai.combined_provider import CombinedProvider
 from ticket_router.errors import AIResponseError
 from ticket_router.logger import logger
 from ticket_router.models import TicketRouteResult
@@ -43,7 +43,7 @@ def route_ticket(message: str, provider: AIProvider | None = None) -> TicketRout
     This is the project's single reusable routing function - the Streamlit
     UI, tests, and any future CLI/script all call this same function.
     """
-    provider = provider or GroqProvider()
+    provider = provider or CombinedProvider()
 
     text, truncated = truncate_message(message)
     if truncated:
