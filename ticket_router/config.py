@@ -18,17 +18,11 @@ class Config:
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-    # Optional comma-separated override, e.g. "gpt-4o,gpt-4-turbo". When
-    # unset, OpenAIProvider falls back to its own curated default chain of
-    # other OpenAI models if OPENAI_MODEL fails.
+    # Optional comma-separated list of other OpenAI models to fall back to
+    # if OPENAI_MODEL fails, e.g. "gpt-4o,gpt-4-turbo". Fallback only
+    # happens when this is explicitly set - see
+    # ticket_router.ai.openai_provider.build_model_chain.
     OPENAI_FALLBACK_MODELS: str = os.getenv("OPENAI_FALLBACK_MODELS", "")
-
-    # Postgres connection string for persisting routed tickets - see
-    # ticket_router.db. Persistence is best-effort, so the app still works
-    # if this points at a database that isn't running.
-    DATABASE_URL: str = os.getenv(
-        "DATABASE_URL", "postgresql://ticket_router:ticket_router@localhost:5432/ticket_router"
-    )
 
 
 config = Config()

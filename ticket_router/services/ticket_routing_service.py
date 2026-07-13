@@ -4,7 +4,6 @@ from pydantic import ValidationError as PydanticValidationError
 
 from ticket_router.ai.base import AIProvider
 from ticket_router.ai.openai_provider import OpenAIProvider
-from ticket_router.db import save_routing_decision
 from ticket_router.errors import AIResponseError
 from ticket_router.logger import logger
 from ticket_router.models import TicketRouteResult
@@ -56,7 +55,6 @@ def route_ticket(message: str, provider: AIProvider | None = None) -> TicketRout
     try:
         result = _parse_and_validate(first_raw)
         result.model_used = getattr(provider, "last_model_used", None)
-        save_routing_decision(text, result)
         return result
     except (ValueError, PydanticValidationError) as first_error:
         error_summary = summarize_validation_error(first_error)
@@ -68,7 +66,6 @@ def route_ticket(message: str, provider: AIProvider | None = None) -> TicketRout
     try:
         result = _parse_and_validate(second_raw)
         result.model_used = getattr(provider, "last_model_used", None)
-        save_routing_decision(text, result)
         return result
     except (ValueError, PydanticValidationError) as second_error:
         final_summary = summarize_validation_error(second_error)

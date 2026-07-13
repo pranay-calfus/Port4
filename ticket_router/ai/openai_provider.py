@@ -9,16 +9,6 @@ from ticket_router.errors import AIUnavailableError
 from ticket_router.logger import logger
 from ticket_router.prompts import SYSTEM_PROMPT
 
-# Other OpenAI models tried, in order, if OPENAI_MODEL fails. Override with
-# OPENAI_FALLBACK_MODELS in .env (comma-separated) if you want a different
-# chain.
-DEFAULT_FALLBACK_MODELS: tuple[str, ...] = (
-    "gpt-4o-mini",
-    "gpt-4o",
-    "gpt-4-turbo",
-    "gpt-3.5-turbo",
-)
-
 # Auth failures are a property of the API key, not the model - retrying
 # with a different model would just fail the same way, so we fail fast
 # instead of burning the whole fallback chain on a bad key.
@@ -26,23 +16,13 @@ _NON_RETRYABLE_STATUS_CODES = (401, 403)
 
 
 def build_model_chain() -> list[str]:
-    """The configured primary model first, then fallbacks (deduplicated,
-    order preserved). OPENAI_FALLBACK_MODELS in .env overrides the built-in
-    default chain if set.
+    """The configured primary model, plus any fallback models explicitly
+    listed in OPENAI_FALLBACK_MODELS (comma-separated, deduplicated, order
+    preserved). Fallback is opt-in: with OPENAI_FALLBACK_MODELS unset, the
+    chain is just [OPENAI_MODEL] and a failure raises immediately.
     """
-    if config.OPENAI_FALLBACK_MODELS.strip():
-        fallbacks = [m.strip() for m in config.OPENAI_FALLBACK_MODELS.split(",") if m.strip()]
-    else:
-        fallbacks = list(DEFAULT_FALLBACK_MODELS)
-
-    chain = [config.OPENAI_MODEL, *fallbacks]
-    seen: set[str] = set()
-    deduped = []
-    for model in chain:
-        if model not in seen:
-            seen.add(model)
-            deduped.append(model)
-    return deduped
+    fallbacks = [m.strip() for m in config.OPENAI_FALLBACK_MODELS.split(",") if m.strip()]
+    return list(dict.fromkeys([config.OPENAI_MODEL, *fallbacks]))
 
 
 def _is_non_retryable(error: Exception) -> bool:

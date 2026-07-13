@@ -92,6 +92,28 @@ div.stButton > button[kind="secondary"]:hover {
     border-color: rgba(248, 250, 252, 0.4);
 }
 
+/* Streamlit wraps the button label in its own <p>/<div>, which the global
+   `p, span { color: ... }` rule below otherwise overrides (same specificity
+   as an ancestor override doesn't win against a direct element rule) -
+   washing out the label against the light "primary" button background. */
+div.stButton > button[kind="primary"] p,
+div.stButton > button[kind="primary"] span,
+div.stButton > button[kind="primary"] div,
+div.stFormSubmitButton > button[kind="primary"] p,
+div.stFormSubmitButton > button[kind="primary"] span,
+div.stFormSubmitButton > button[kind="primary"] div {
+    color: #000000 !important;
+}
+
+div.stButton > button[kind="secondary"] p,
+div.stButton > button[kind="secondary"] span,
+div.stButton > button[kind="secondary"] div,
+div.stFormSubmitButton > button[kind="secondary"] p,
+div.stFormSubmitButton > button[kind="secondary"] span,
+div.stFormSubmitButton > button[kind="secondary"] div {
+    color: #f8fafc !important;
+}
+
 /* Text inputs / textareas / selects */
 .stTextArea textarea, .stTextInput input, .stSelectbox div[data-baseweb="select"] > div {
     background: rgba(255, 255, 255, 0.04) !important;

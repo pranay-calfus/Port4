@@ -32,6 +32,9 @@ def _fake_response_without_tool_call() -> SimpleNamespace:
 @pytest.fixture(autouse=True)
 def _fake_api_key(monkeypatch):
     monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
+    # Fallback is opt-in - default to none configured so tests are
+    # deterministic regardless of the developer's local .env.
+    monkeypatch.setattr(config, "OPENAI_FALLBACK_MODELS", "")
     yield
 
 
@@ -75,7 +78,19 @@ def test_succeeds_on_the_configured_primary_model_without_falling_back():
     assert get_llm_calls[-1] == config.OPENAI_MODEL
 
 
-def test_falls_back_to_second_model_when_first_raises():
+def test_no_fallback_configured_raises_immediately_on_failure():
+    mock_invoke = MagicMock(side_effect=RuntimeError("rate limited"))
+    provider = _provider_with_mock_invoke(mock_invoke)
+
+    with pytest.raises(AIUnavailableError) as exc_info:
+        provider.route_ticket("some ticket text")
+
+    assert mock_invoke.call_count == 1
+    assert exc_info.value.details["attemptedModels"] == [config.OPENAI_MODEL]
+
+
+def test_falls_back_to_second_model_when_first_raises(monkeypatch):
+    monkeypatch.setattr(config, "OPENAI_FALLBACK_MODELS", "gpt-4o")
     mock_invoke = MagicMock(side_effect=[RuntimeError("rate limited"), _fake_response(VALID_ARGS)])
     provider = _provider_with_mock_invoke(mock_invoke)
 
@@ -90,7 +105,8 @@ def test_falls_back_to_second_model_when_first_raises():
     assert first_model != second_model
 
 
-def test_falls_back_when_a_model_returns_no_tool_call():
+def test_falls_back_when_a_model_returns_no_tool_call(monkeypatch):
+    monkeypatch.setattr(config, "OPENAI_FALLBACK_MODELS", "gpt-4o")
     mock_invoke = MagicMock(
         side_effect=[_fake_response_without_tool_call(), _fake_response(VALID_ARGS)]
     )
@@ -102,18 +118,24 @@ def test_falls_back_when_a_model_returns_no_tool_call():
     assert mock_invoke.call_count == 2
 
 
-def test_raises_ai_unavailable_when_every_model_in_the_chain_fails():
+def test_raises_ai_unavailable_when_every_model_in_the_chain_fails(monkeypatch):
+    monkeypatch.setattr(config, "OPENAI_FALLBACK_MODELS", "gpt-4o,gpt-3.5-turbo")
     mock_invoke = MagicMock(side_effect=RuntimeError("service down"))
     provider = _provider_with_mock_invoke(mock_invoke)
 
     with pytest.raises(AIUnavailableError) as exc_info:
         provider.route_ticket("some ticket text")
 
-    assert mock_invoke.call_count >= 2
-    assert "attemptedModels" in exc_info.value.details
+    assert mock_invoke.call_count == 3
+    assert exc_info.value.details["attemptedModels"] == [
+        config.OPENAI_MODEL,
+        "gpt-4o",
+        "gpt-3.5-turbo",
+    ]
 
 
-def test_authentication_error_fails_fast_without_trying_other_models():
+def test_authentication_error_fails_fast_without_trying_other_models(monkeypatch):
+    monkeypatch.setattr(config, "OPENAI_FALLBACK_MODELS", "gpt-4o,gpt-3.5-turbo")
     mock_invoke = MagicMock(side_effect=_AuthError("invalid api key"))
     provider = _provider_with_mock_invoke(mock_invoke)
 

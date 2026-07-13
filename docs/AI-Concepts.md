@@ -4,7 +4,7 @@ This document explains, in plain English, the AI techniques used in this project
 
 ## 1. What problem is the AI solving?
 
-When a support ticket comes in, someone has to read it, figure out what it's about, decide how urgent it is, and hand it to the right team. That's a classification task: turning unstructured text into a small set of structured labels. Large language models (LLMs) are good at this because they understand natural language well enough to reason about intent, tone, and context - things a simple keyword search would miss (e.g. "I can't access my order" needs to be understood as an account or shipping issue, not just matched on the word "order").
+When a support ticket comes in, someone has to read it, figure out what it's about, decide how urgent it is, and hand it to the right team. That's a classification task: turning unstructured text into a small set of structured labels. Large language models (LLMs) are good at this because they understand natural language well enough to reason about intent, tone, and context - things a simple keyword search would miss (e.g. "I can't access my order" needs to be understood as an account or shipping issue, not just matched on the word "order").  
 
 ## 2. Prompt engineering (Layer 1 of JSON reliability)
 
@@ -56,9 +56,9 @@ If both the initial attempt and the retry fail, the service raises a typed `AIRe
 
 ## 8. Model fallback: a second kind of reliability
 
-Layers 1-6 above all assume the configured model is reachable and just needs to be told correctly what to return. But an LLM API can also be unavailable in a way no amount of prompt engineering fixes: the key is invalid, the model is rate-limited, temporarily overloaded, or has been decommissioned. This project handles that with a model-level fallback chain in [`OpenAIProvider`](../ticket_router/ai/openai_provider.py), separate from the validation retry in Layer 4.
+Layers 1-6 above all assume the configured model is reachable and just needs to be told correctly what to return. But an LLM API can also be unavailable in a way no amount of prompt engineering fixes: the key is invalid, the model is rate-limited, temporarily overloaded, or has been decommissioned. This project handles that with an opt-in model-level fallback chain in [`OpenAIProvider`](../ticket_router/ai/openai_provider.py), separate from the validation retry in Layer 4.
 
-If the primary model's request fails (or comes back without a tool call at all), `OpenAIProvider` automatically tries the next model in `DEFAULT_FALLBACK_MODELS`, stopping at the first one that succeeds. Authentication errors are the one exception - a bad API key fails identically on every model, so the provider fails immediately instead of wasting time retrying it across the whole chain. If every model in the chain fails, it raises `AIUnavailableError`, which Layer 6 already knows how to turn into a clean message.
+By default there is no fallback - `OPENAI_MODEL` is the only model tried, and a failure raises immediately. Setting `OPENAI_FALLBACK_MODELS` (comma-separated) in `.env` enables a chain: if the primary model's request fails (or comes back without a tool call at all), `OpenAIProvider` automatically tries the next model in that list, stopping at the first one that succeeds. Authentication errors are the one exception - a bad API key fails identically on every model, so the provider fails immediately instead of wasting time retrying it across the whole chain. If every configured model fails, it raises `AIUnavailableError`, which Layer 6 already knows how to turn into a clean message.
 
 This means a single overloaded or rate-limited model doesn't take the whole app down - the classification still happens via whichever model in the chain actually answered, and that identity is surfaced in the UI (see the "Routed via" pill on each result card) rather than hidden.
 

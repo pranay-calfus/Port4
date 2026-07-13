@@ -13,7 +13,6 @@ import time
 
 import streamlit as st
 
-from ticket_router.db import init_db
 from ticket_router.errors import AppError
 from ticket_router.models import ASSIGNED_TEAMS, CATEGORIES, PRIORITIES, TicketRequest
 from ticket_router.services.agent_service import chat_with_department
@@ -29,9 +28,6 @@ from ticket_router.ui.theme import inject_custom_theme
 
 st.set_page_config(page_title="Smart Ticket Router", page_icon="🧭", layout="centered")
 inject_custom_theme()
-
-if "db_ready" not in st.session_state:
-    st.session_state.db_ready = init_db()
 
 if "ticket_text" not in st.session_state:
     st.session_state.ticket_text = ""
@@ -55,6 +51,26 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "chat_team" not in st.session_state:
     st.session_state.chat_team = None
+if "routed_ticket_text" not in st.session_state:
+    st.session_state.routed_ticket_text = None
+
+
+def _clear_ticket() -> None:
+    """on_click callback for the "Clear" button. Callbacks run before the
+    script body re-executes, so it's safe to assign to
+    st.session_state.ticket_text here - unlike assigning to it later in the
+    script, after the st.text_area(key="ticket_text") widget has already
+    been instantiated for this run, which Streamlit rejects.
+    """
+    st.session_state.ticket_text = ""
+    st.session_state.result = None
+    st.session_state.error = None
+    st.session_state.manual_start_time = None
+    st.session_state.manual_time_seconds = None
+    st.session_state.manual_answer = None
+    st.session_state.chat_history = []
+    st.session_state.chat_team = None
+    st.session_state.routed_ticket_text = None
 
 
 def classify(message: str) -> tuple[object | None, str | None, float]:
@@ -90,7 +106,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-router_tab, demo_tab = st.tabs(["Router", "Demo Mode"])
+router_tab, chat_tab, demo_tab = st.tabs(["Router", "Chat", "Demo Mode"])
 
 with router_tab:
     with st.container(border=True):
@@ -133,16 +149,7 @@ with router_tab:
 
         col1, col2, _ = st.columns([1, 1, 3])
         route_clicked = col1.button("Route Ticket", type="primary", use_container_width=True)
-        clear_clicked = col2.button("Clear", type="secondary", use_container_width=True)
-
-        if clear_clicked:
-            st.session_state.ticket_text = ""
-            st.session_state.result = None
-            st.session_state.error = None
-            st.session_state.manual_start_time = None
-            st.session_state.manual_time_seconds = None
-            st.session_state.manual_answer = None
-            st.rerun()
+        col2.button("Clear", type="secondary", use_container_width=True, on_click=_clear_ticket)
 
         if route_clicked:
             try:
@@ -157,6 +164,9 @@ with router_tab:
                     st.session_state.result = (result, elapsed_ms)
                     st.session_state.error = None
                     st.session_state.session_samples.append(elapsed_ms)
+                    st.session_state.routed_ticket_text = message
+                    st.session_state.chat_history = []
+                    st.session_state.chat_team = None
                 else:
                     st.session_state.error = error
                     st.session_state.result = None
@@ -179,38 +189,6 @@ with router_tab:
                 unsafe_allow_html=True,
             )
             st.code(json.dumps(payload, indent=2), language="json")
-
-    if st.session_state.result:
-        result, _ = st.session_state.result
-        st.write("")
-        with st.container(border=True):
-            st.markdown(
-                '<div class="tr-muted">CHAT WITH THE ASSIGNED TEAM</div>',
-                unsafe_allow_html=True,
-            )
-            st.caption(
-                f"Talk directly to the {result.assigned_team} agent about this ticket - "
-                "grounded in that team's own skills.md persona."
-            )
-
-            if st.session_state.chat_team != result.assigned_team:
-                st.session_state.chat_history = []
-                st.session_state.chat_team = result.assigned_team
-
-            for role, content in st.session_state.chat_history:
-                with st.chat_message(role):
-                    st.write(content)
-
-            chat_input = st.chat_input(f"Message the {result.assigned_team}…")
-            if chat_input:
-                prior_history = list(st.session_state.chat_history)
-                st.session_state.chat_history.append(("user", chat_input))
-                try:
-                    reply = chat_with_department(result.assigned_team, prior_history, chat_input)
-                    st.session_state.chat_history.append(("assistant", reply))
-                except AppError as error:
-                    st.session_state.chat_history.append(("assistant", f"⚠️ {error.message}"))
-                st.rerun()
 
     st.write("")
     with st.container(border=True):
@@ -266,6 +244,63 @@ with router_tab:
             st.session_state.session_samples,
             manual_seconds=st.session_state.manual_time_seconds,
         )
+
+with chat_tab:
+    with st.container(border=True):
+        if not st.session_state.result:
+            st.markdown(
+                '<div class="tr-muted">CHAT WITH THE ASSIGNED TEAM</div>',
+                unsafe_allow_html=True,
+            )
+            st.caption("Route a ticket in the Router tab first to chat with its assigned team.")
+        else:
+            result, _ = st.session_state.result
+            st.markdown(
+                f'<div class="tr-muted">CHAT WITH {result.assigned_team.upper()}</div>',
+                unsafe_allow_html=True,
+            )
+            st.caption(
+                "Grounded in that team's own skills.md persona. The conversation starts "
+                "with the ticket you just routed."
+            )
+
+            if st.session_state.chat_team != result.assigned_team:
+                st.session_state.chat_history = []
+                st.session_state.chat_team = result.assigned_team
+
+            # First time this team's chat is opened for the current ticket,
+            # auto-send the routed ticket text as the opening message so the
+            # agent already has context, instead of an empty chat.
+            if not st.session_state.chat_history:
+                ticket_message = st.session_state.routed_ticket_text
+                st.session_state.chat_history.append(("user", ticket_message))
+                with st.spinner("Thinking…"):
+                    try:
+                        reply = chat_with_department(result.assigned_team, [], ticket_message)
+                    except AppError as error:
+                        reply = f"⚠️ {error.message}"
+                st.session_state.chat_history.append(("assistant", reply))
+
+            for role, content in st.session_state.chat_history:
+                with st.chat_message(role):
+                    st.write(content)
+
+            chat_input = st.chat_input(f"Message the {result.assigned_team}…")
+            if chat_input:
+                prior_history = list(st.session_state.chat_history)
+                st.session_state.chat_history.append(("user", chat_input))
+                with st.chat_message("user"):
+                    st.write(chat_input)
+                with st.chat_message("assistant"):
+                    with st.spinner("Thinking…"):
+                        try:
+                            reply = chat_with_department(
+                                result.assigned_team, prior_history, chat_input
+                            )
+                        except AppError as error:
+                            reply = f"⚠️ {error.message}"
+                    st.write(reply)
+                st.session_state.chat_history.append(("assistant", reply))
 
 with demo_tab:
     with st.container(border=True):

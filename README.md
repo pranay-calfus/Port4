@@ -2,7 +2,7 @@
 
 An AI-powered support ticket triage system. Paste any customer support message and get back a structured, always-valid classification: **category**, **priority**, **assigned team**, **one-line reasoning**, and a **confidence score** — in seconds instead of minutes.
 
-A single Python process: [Streamlit](https://streamlit.io) for the UI, [LangChain](https://python.langchain.com) orchestrating [OpenAI](https://platform.openai.com) as the sole classification provider with an automatic model-to-model fallback chain, and [Pydantic](https://docs.pydantic.dev) for strict validation, with automatic retries and JSON repair guaranteeing the app never crashes and never shows malformed data. Once a ticket is routed, you can also chat directly with the assigned department's own conversational agent, each grounded in a per-team `skills.md` persona. Routed tickets persist to Postgres.
+A single Python process: [Streamlit](https://streamlit.io) for the UI, [LangChain](https://python.langchain.com) orchestrating [OpenAI](https://platform.openai.com) as the sole classification provider with an optional model-to-model fallback chain, and [Pydantic](https://docs.pydantic.dev) for strict validation, with automatic retries and JSON repair guaranteeing the app never crashes and never shows malformed data. Once a ticket is routed, you can also chat directly with the assigned department's own conversational agent, each grounded in a per-team `skills.md` persona.
 
 ## Table of Contents
 
@@ -18,7 +18,6 @@ A single Python process: [Streamlit](https://streamlit.io) for the UI, [LangChai
 - [Retry Strategy](#retry-strategy)
 - [Model Fallback](#model-fallback)
 - [Department Agents & skills.md](#department-agents--skillsmd)
-- [Ticket Persistence](#ticket-persistence)
 - [Edge Cases](#edge-cases)
 - [Sample Tickets & Demo Mode](#sample-tickets--demo-mode)
 - [Manual vs. AI Time Comparison](#manual-vs-ai-time-comparison)
@@ -35,14 +34,13 @@ Support teams spend a meaningful amount of time simply _sorting_ incoming ticket
 
 ```
 smart-ticket-router (repo root)
-├── app.py                     Streamlit entrypoint - Router tab + Demo Mode tab
+├── app.py                     Streamlit entrypoint - Router, Chat, and Demo Mode tabs
 ├── ticket_router/             the reusable package
-│   ├── config.py              env loading (API keys/models, DATABASE_URL)
+│   ├── config.py              env loading (API keys/models)
 │   ├── models.py              Pydantic models: TicketRouteResult, TicketRequest, enums
 │   ├── errors.py              AppError hierarchy (ValidationError, AIUnavailableError, AIResponseError)
 │   ├── logger.py              structured JSON logging
 │   ├── prompts.py             system prompt + 12 few-shot examples
-│   ├── db.py                  SQLAlchemy models + best-effort Postgres persistence
 │   ├── ai/
 │   │   ├── base.py             AIProvider Protocol
 │   │   ├── tool_schema.py      the shared route_ticket function-calling schema
@@ -99,16 +97,13 @@ Edit `.env` and set `OPENAI_API_KEY`.
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o-mini
 # OPENAI_FALLBACK_MODELS=gpt-4o,gpt-4-turbo,gpt-3.5-turbo
-
-# DATABASE_URL=postgresql://ticket_router:ticket_router@localhost:5432/ticket_router
 ```
 
 | Variable | Description | Default |
 |---|---|---|
 | `OPENAI_API_KEY` | Your OpenAI API key (see [Getting API Keys](#getting-api-keys)) | — |
 | `OPENAI_MODEL` | OpenAI model id, tried first | `gpt-4o-mini` |
-| `OPENAI_FALLBACK_MODELS` | Optional comma-separated override for the model fallback chain (see [Model Fallback](#model-fallback)) | built-in default chain |
-| `DATABASE_URL` | Postgres connection string for [ticket persistence](#ticket-persistence) | `postgresql://ticket_router:ticket_router@localhost:5432/ticket_router` |
+| `OPENAI_FALLBACK_MODELS` | Optional comma-separated list of other models to fall back to (see [Model Fallback](#model-fallback)) | unset - no fallback |
 
 **No API key is ever hardcoded.** If it's missing, the app still boots - the UI loads and the "Try an example" dropdown works, but clicking "Route Ticket" surfaces a clean, specific error (`AI_UNAVAILABLE`) instead of crashing.
 
@@ -119,9 +114,10 @@ source .venv/bin/activate
 streamlit run app.py
 ```
 
-Opens at `http://localhost:8501`. The app has two tabs, both in the same process:
+Opens at `http://localhost:8501`. The app has three tabs, all in the same process:
 
 - **Router** — paste a ticket, pick an example, or edit one, then click "Route Ticket".
+- **Chat** — once a ticket is routed, chat with the assigned team's own conversational agent (see [Department Agents & skills.md](#department-agents--skillsmd)).
 - **Demo Mode** — step through all 20 sample tickets one at a time (or click "Run Full Demo" to classify all 20 in one pass) - built for walking a mentor through the system quickly.
 
 ## The Reusable Routing Function
@@ -164,23 +160,29 @@ Six layers of defense guarantee the app always ends up with valid, schema-confor
 
 ## Model Fallback
 
-Retries alone don't help if the configured model itself is unavailable (rate limit, outage, decommissioned model, etc.). [`OpenAIProvider`](ticket_router/ai/openai_provider.py) tries `OPENAI_MODEL` first, then every model in [`DEFAULT_FALLBACK_MODELS`](ticket_router/ai/openai_provider.py) in turn:
+Retries alone don't help if the configured model itself is unavailable (rate limit, outage, decommissioned model, etc.). Fallback is **opt-in**: with `OPENAI_FALLBACK_MODELS` unset, [`OpenAIProvider`](ticket_router/ai/openai_provider.py) only ever tries `OPENAI_MODEL`, and a failure raises immediately - no silent extra API calls to a model you didn't ask for.
+
+Set `OPENAI_FALLBACK_MODELS` to a comma-separated list to enable a chain, e.g.:
+
+```env
+OPENAI_FALLBACK_MODELS=gpt-4o,gpt-4-turbo,gpt-3.5-turbo
+```
 
 ```
-gpt-4o-mini (primary)
+gpt-4o-mini (OPENAI_MODEL, tried first)
   → gpt-4o
   → gpt-4-turbo
   → gpt-3.5-turbo
 ```
 
-- On failure (rate limit, timeout, 5xx, or a response with no tool call), it automatically falls through to the next model. Override the whole chain with `OPENAI_FALLBACK_MODELS` in `.env` if you want a different list or order.
+- On failure (rate limit, timeout, 5xx, or a response with no tool call), it automatically falls through to the next model in the list, in order.
 - **Authentication/permission errors fail fast** without burning the rest of the chain - a bad API key fails identically on every model, so there's no point retrying it.
 - If every model in the chain fails, a single `AIUnavailableError` is raised.
 - The same model chain drives the department chat agents too (see [Department Agents & skills.md](#department-agents--skillsmd)), via LangChain's `.with_fallbacks()` instead of a hand-rolled loop.
 
 ## Department Agents & skills.md
 
-After a ticket is routed, the Router tab shows a "Chat with the assigned team" panel where you can talk directly to that department's own conversational agent — e.g. a ticket routed to `Security Team` opens a chat grounded in [`skills/security_team.md`](skills/security_team.md), not a generic assistant.
+After a ticket is routed, the **Chat** tab lets you talk directly to that department's own conversational agent — e.g. a ticket routed to `Security Team` opens a chat grounded in [`skills/security_team.md`](skills/security_team.md), not a generic assistant. The conversation auto-starts with the ticket you just routed as the first message, so the agent already has context before you type anything.
 
 Each of the 8 assigned teams has its own `skills.md` file under [`skills/`](skills/), defining that agent's role, tone, scope, and boundaries (what it can and can't do in-chat):
 
@@ -196,10 +198,6 @@ Each of the 8 assigned teams has its own `skills.md` file under [`skills/`](skil
 | Customer Success | [`customer_success.md`](skills/customer_success.md) |
 
 [`ticket_router/services/agent_service.py`](ticket_router/services/agent_service.py) loads the right file for the routed team as a system prompt and drives the conversation through [`ticket_router/ai/chat_llm.py`](ticket_router/ai/chat_llm.py) - a LangChain `ChatOpenAI` with `.with_fallbacks(...)` across the same OpenAI model chain used for routing, independent of the structured routing call itself.
-
-## Ticket Persistence
-
-Every successfully routed ticket is persisted to Postgres via [`ticket_router/db.py`](ticket_router/db.py) - the original message plus the full routing decision (category, priority, assigned team, reasoning, confidence, model used, timestamp) in a single `routed_tickets` table. Persistence is best-effort: if Postgres is unreachable, the app logs a warning and keeps routing tickets normally - a database outage never breaks the UI. Point `DATABASE_URL` at your own Postgres instance to enable it (see [Environment Variables](#environment-variables)).
 
 ## Edge Cases
 

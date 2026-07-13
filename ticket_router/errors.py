@@ -2,11 +2,6 @@ from typing import Any
 
 
 class AppError(Exception):
-    """Base for all typed application errors. Every error raised by the
-    routing pipeline is one of these subclasses - never a raw exception -
-    so the UI layer can always show a clean, specific message instead of
-    crashing.
-    """
 
     def __init__(self, message: str, code: str, details: Any = None) -> None:
         super().__init__(message)
