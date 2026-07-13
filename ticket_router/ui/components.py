@@ -61,8 +61,8 @@ def render_result_card(result: TicketRouteResult, processing_time_ms: float) -> 
                 <div class="tr-field" style="flex:1; min-width:180px;">
                     <div class="tr-muted">Confidence</div>
                     <div class="tr-field-value">{confidence_pct}%</div>
-                    <div style="height:6px; border-radius:999px; background:rgba(148,163,184,0.15); margin-top:6px; overflow:hidden;">
-                        <div style="height:100%; width:{confidence_pct}%; background:linear-gradient(90deg, #6366f1, #a855f7);"></div>
+                    <div style="height:6px; border-radius:999px; background:rgba(248,250,252,0.12); margin-top:6px; overflow:hidden;">
+                        <div style="height:100%; width:{confidence_pct}%; background:#f8fafc;"></div>
                     </div>
                 </div>
             </div>
@@ -145,7 +145,7 @@ def render_comparison_section(samples_ms: list[float], manual_seconds: float | N
                 <div class="tr-stat-label">{manual_caption}</div>
             </div>
             <div class="tr-stat" style="flex:1; min-width:140px;">
-                <div class="tr-stat-value" style="color:#a5b4fc;">{ai_display}</div>
+                <div class="tr-stat-value" style="color:#f8fafc;">{ai_display}</div>
                 <div class="tr-stat-label">{ai_caption}</div>
             </div>
             <div class="tr-stat" style="flex:1; min-width:140px;">

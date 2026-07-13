@@ -5,9 +5,8 @@ from ticket_router.models import ASSIGNED_TEAMS, CATEGORIES, PRIORITIES
 ROUTE_TICKET_TOOL_NAME = "route_ticket"
 
 # Forcing the model to call this tool is our primary structured-output
-# guarantee (Layer 2 of JSON reliability, see docs/AI-Concepts.md). Shared
-# by every provider (OpenAI, Groq) since they all speak the same
-# OpenAI-compatible function-calling schema.
+# guarantee (Layer 2 of JSON reliability, see docs/AI-Concepts.md), shared
+# by every model in OpenAIProvider's fallback chain.
 ROUTE_TICKET_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {

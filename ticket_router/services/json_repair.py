@@ -1,7 +1,7 @@
 import json
 import re
 
-# Fallback JSON-repair utilities. Groq's forced tool-calling makes these
+# Fallback JSON-repair utilities. OpenAI's forced tool-calling makes these
 # rarely necessary (tool call arguments already arrive as a JSON string
 # matching our schema), but they exist as defense-in-depth for the case a
 # response is malformed - e.g. wrapped in prose or code fences.

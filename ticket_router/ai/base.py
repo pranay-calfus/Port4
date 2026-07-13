@@ -2,10 +2,10 @@ from typing import Protocol
 
 
 class AIProvider(Protocol):
-    """Structural interface implemented by GroqProvider (the app's only AI
-    provider). Keeping this as a Protocol - rather than calling GroqProvider
-    directly everywhere - is what lets tests inject a fake provider instead
-    of making real network calls.
+    """Structural interface implemented by OpenAIProvider (the app's only AI
+    provider). Keeping this as a Protocol - rather than calling
+    OpenAIProvider directly everywhere - is what lets tests inject a fake
+    provider instead of making real network calls.
     """
 
     # Set by route_ticket() after a successful call, so the caller can find

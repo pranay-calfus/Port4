@@ -3,7 +3,8 @@ import json
 from pydantic import ValidationError as PydanticValidationError
 
 from ticket_router.ai.base import AIProvider
-from ticket_router.ai.combined_provider import CombinedProvider
+from ticket_router.ai.openai_provider import OpenAIProvider
+from ticket_router.db import save_routing_decision
 from ticket_router.errors import AIResponseError
 from ticket_router.logger import logger
 from ticket_router.models import TicketRouteResult
@@ -13,8 +14,8 @@ from ticket_router.services.prompt_service import summarize_validation_error, tr
 
 def _parse_and_validate(raw: str) -> TicketRouteResult:
     """Parses a raw JSON string and validates it against TicketRouteResult.
-    Tries a direct json.loads() first (the common case, since Groq's forced
-    tool call already returns well-formed JSON), then falls back to
+    Tries a direct json.loads() first (the common case, since OpenAI's
+    forced tool call already returns well-formed JSON), then falls back to
     string-based repair for anything malformed.
 
     Raises ValueError or pydantic.ValidationError on failure - callers
@@ -43,7 +44,7 @@ def route_ticket(message: str, provider: AIProvider | None = None) -> TicketRout
     This is the project's single reusable routing function - the Streamlit
     UI, tests, and any future CLI/script all call this same function.
     """
-    provider = provider or CombinedProvider()
+    provider = provider or OpenAIProvider()
 
     text, truncated = truncate_message(message)
     if truncated:
@@ -55,6 +56,7 @@ def route_ticket(message: str, provider: AIProvider | None = None) -> TicketRout
     try:
         result = _parse_and_validate(first_raw)
         result.model_used = getattr(provider, "last_model_used", None)
+        save_routing_decision(text, result)
         return result
     except (ValueError, PydanticValidationError) as first_error:
         error_summary = summarize_validation_error(first_error)
@@ -66,6 +68,7 @@ def route_ticket(message: str, provider: AIProvider | None = None) -> TicketRout
     try:
         result = _parse_and_validate(second_raw)
         result.model_used = getattr(provider, "last_model_used", None)
+        save_routing_decision(text, result)
         return result
     except (ValueError, PydanticValidationError) as second_error:
         final_summary = summarize_validation_error(second_error)

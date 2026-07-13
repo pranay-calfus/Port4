@@ -1,8 +1,8 @@
-"""Custom dark, sleek CSS injected once at app startup. Streamlit's own
+"""Custom midnight-black CSS injected once at app startup. Streamlit's own
 dark theme (.streamlit/config.toml) gets the base colors right; this file
-layers on the glassy cards, gradient accents, and badge/progress styling
-that make the app feel like a purpose-built product rather than a default
-Streamlit app.
+layers on the glassy cards, light-contrast buttons/accents, and badge/
+progress styling that make the app feel like a purpose-built product
+rather than a default Streamlit app.
 """
 
 CUSTOM_CSS = """
@@ -14,11 +14,7 @@ html, body, [class*="css"] {
 }
 
 .stApp {
-    background:
-        radial-gradient(circle at 15% 0%, rgba(129, 140, 248, 0.16), transparent 45%),
-        radial-gradient(circle at 85% 15%, rgba(192, 132, 252, 0.14), transparent 45%),
-        radial-gradient(circle at 50% 100%, rgba(244, 114, 182, 0.08), transparent 55%),
-        #0b0f1a;
+    background: #000000;
 }
 
 header[data-testid="stHeader"] {
@@ -32,8 +28,8 @@ section.main > div {
 
 /* Card containers (st.container(border=True)) */
 div[data-testid="stVerticalBlockBorderWrapper"] {
-    background: rgba(20, 26, 43, 0.72);
-    border: 1px solid rgba(148, 163, 184, 0.14);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(248, 250, 252, 0.14);
     border-radius: 16px;
     backdrop-filter: blur(10px);
 }
@@ -44,16 +40,16 @@ div[data-testid="stVerticalBlockBorderWrapper"] > div {
 
 /* Headings */
 h1, h2, h3 {
-    color: #f1f5f9 !important;
+    color: #f8fafc !important;
     font-weight: 700 !important;
 }
 
 p, span, label, .stMarkdown {
-    color: #cbd5e1;
+    color: #e2e8f0;
 }
 
 .tr-muted {
-    color: #94a3b8;
+    color: #a1a1aa;
     font-size: 0.78rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -61,56 +57,58 @@ p, span, label, .stMarkdown {
 }
 
 .tr-subtitle {
-    color: #94a3b8;
+    color: #a1a1aa;
     font-size: 0.92rem;
 }
 
-/* Buttons */
+/* Buttons - light, high-contrast against the black background */
 div.stButton > button, div.stFormSubmitButton > button {
     border-radius: 10px;
     font-weight: 600;
     transition: all 0.15s ease;
-    border: 1px solid rgba(148, 163, 184, 0.18);
+    border: 1px solid rgba(248, 250, 252, 0.25);
 }
 
 div.stButton > button[kind="primary"], div.stFormSubmitButton > button[kind="primary"] {
-    background: linear-gradient(135deg, #6366f1, #a855f7);
+    background: #f8fafc;
+    color: #000000;
     border: none;
-    box-shadow: 0 4px 18px rgba(99, 102, 241, 0.35);
+    box-shadow: 0 4px 18px rgba(248, 250, 252, 0.18);
 }
 
 div.stButton > button[kind="primary"]:hover, div.stFormSubmitButton > button[kind="primary"]:hover {
-    box-shadow: 0 6px 22px rgba(168, 85, 247, 0.45);
+    background: #ffffff;
+    box-shadow: 0 6px 22px rgba(248, 250, 252, 0.3);
     transform: translateY(-1px);
 }
 
 div.stButton > button[kind="secondary"] {
-    background: rgba(148, 163, 184, 0.08);
-    color: #e2e8f0;
+    background: rgba(248, 250, 252, 0.06);
+    color: #f8fafc;
 }
 
 div.stButton > button[kind="secondary"]:hover {
-    background: rgba(148, 163, 184, 0.16);
-    border-color: rgba(148, 163, 184, 0.3);
+    background: rgba(248, 250, 252, 0.14);
+    border-color: rgba(248, 250, 252, 0.4);
 }
 
 /* Text inputs / textareas / selects */
 .stTextArea textarea, .stTextInput input, .stSelectbox div[data-baseweb="select"] > div {
-    background: rgba(11, 15, 26, 0.6) !important;
-    border: 1px solid rgba(148, 163, 184, 0.2) !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(248, 250, 252, 0.2) !important;
     border-radius: 10px !important;
-    color: #e2e8f0 !important;
+    color: #f1f5f9 !important;
 }
 
 .stTextArea textarea:focus, .stTextInput input:focus {
-    border-color: #818cf8 !important;
-    box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.25) !important;
+    border-color: #f8fafc !important;
+    box-shadow: 0 0 0 2px rgba(248, 250, 252, 0.25) !important;
 }
 
 /* Tabs styled as a segmented control */
 .stTabs [data-baseweb="tab-list"] {
     gap: 4px;
-    background: rgba(148, 163, 184, 0.08);
+    background: rgba(248, 250, 252, 0.06);
     border-radius: 999px;
     padding: 4px;
     width: fit-content;
@@ -119,7 +117,7 @@ div.stButton > button[kind="secondary"]:hover {
 .stTabs [data-baseweb="tab"] {
     border-radius: 999px;
     padding: 6px 18px;
-    color: #94a3b8;
+    color: #a1a1aa;
     font-weight: 600;
     background: transparent;
 }
@@ -129,11 +127,11 @@ div.stButton > button[kind="secondary"]:hover {
 }
 
 .stTabs [data-baseweb="tab"][aria-selected="true"] {
-    background: #ffffff;
+    background: #f8fafc;
 }
 
 .stTabs [data-baseweb="tab"][aria-selected="true"] p {
-    color: #4338ca !important;
+    color: #000000 !important;
 }
 
 .stTabs [data-baseweb="tab-highlight"] {
@@ -146,7 +144,7 @@ div.stButton > button[kind="secondary"]:hover {
 
 /* Progress bar (confidence bar) */
 div[data-testid="stProgress"] div[role="progressbar"] > div {
-    background: linear-gradient(90deg, #6366f1, #a855f7);
+    background: #f8fafc;
 }
 
 /* Badges */
@@ -168,8 +166,8 @@ div[data-testid="stProgress"] div[role="progressbar"] > div {
 .tr-accent-low { border-left: 3px solid #34d399; }
 
 .tr-field {
-    background: rgba(11, 15, 26, 0.55);
-    border: 1px solid rgba(148, 163, 184, 0.12);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(248, 250, 252, 0.1);
     border-radius: 12px;
     padding: 12px 14px;
     margin-bottom: 10px;
@@ -193,8 +191,8 @@ div[data-testid="stProgress"] div[role="progressbar"] > div {
 }
 
 .tr-stat {
-    background: rgba(11, 15, 26, 0.55);
-    border: 1px solid rgba(148, 163, 184, 0.12);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(248, 250, 252, 0.1);
     border-radius: 12px;
     padding: 14px;
     text-align: center;
@@ -206,16 +204,16 @@ div[data-testid="stProgress"] div[role="progressbar"] > div {
 }
 
 .tr-stat-label {
-    color: #94a3b8;
+    color: #a1a1aa;
     font-size: 0.78rem;
     margin-top: 2px;
 }
 
 .tr-pill {
     display: inline-block;
-    background: rgba(52, 211, 153, 0.14);
-    color: #6ee7b7;
-    border: 1px solid rgba(52, 211, 153, 0.3);
+    background: rgba(248, 250, 252, 0.1);
+    color: #f8fafc;
+    border: 1px solid rgba(248, 250, 252, 0.3);
     border-radius: 999px;
     padding: 2px 12px;
     font-size: 0.76rem;
@@ -224,13 +222,13 @@ div[data-testid="stProgress"] div[role="progressbar"] > div {
 
 /* Scrollbars */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background-color: rgba(148, 163, 184, 0.35); border-radius: 999px; }
+::-webkit-scrollbar-thumb { background-color: rgba(248, 250, 252, 0.3); border-radius: 999px; }
 
 /* Progress dots (demo mode ticket stepper) */
 .tr-dot-row { display: flex; gap: 6px; margin-bottom: 14px; }
-.tr-dot { height: 6px; flex: 1; border-radius: 999px; background: rgba(148, 163, 184, 0.18); }
-.tr-dot-active { background: linear-gradient(135deg, #6366f1, #a855f7); }
-.tr-dot-visited { background: rgba(129, 140, 248, 0.45); }
+.tr-dot { height: 6px; flex: 1; border-radius: 999px; background: rgba(248, 250, 252, 0.14); }
+.tr-dot-active { background: #f8fafc; }
+.tr-dot-visited { background: rgba(248, 250, 252, 0.45); }
 </style>
 """
 

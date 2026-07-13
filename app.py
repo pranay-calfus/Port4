@@ -13,8 +13,10 @@ import time
 
 import streamlit as st
 
+from ticket_router.db import init_db
 from ticket_router.errors import AppError
 from ticket_router.models import ASSIGNED_TEAMS, CATEGORIES, PRIORITIES, TicketRequest
+from ticket_router.services.agent_service import chat_with_department
 from ticket_router.services.ticket_routing_service import route_ticket
 from ticket_router.ui.components import (
     render_comparison_section,
@@ -27,6 +29,9 @@ from ticket_router.ui.theme import inject_custom_theme
 
 st.set_page_config(page_title="Smart Ticket Router", page_icon="🧭", layout="centered")
 inject_custom_theme()
+
+if "db_ready" not in st.session_state:
+    st.session_state.db_ready = init_db()
 
 if "ticket_text" not in st.session_state:
     st.session_state.ticket_text = ""
@@ -46,6 +51,10 @@ if "manual_time_seconds" not in st.session_state:
     st.session_state.manual_time_seconds = None
 if "manual_answer" not in st.session_state:
     st.session_state.manual_answer = None
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+if "chat_team" not in st.session_state:
+    st.session_state.chat_team = None
 
 
 def classify(message: str) -> tuple[object | None, str | None, float]:
@@ -170,6 +179,38 @@ with router_tab:
                 unsafe_allow_html=True,
             )
             st.code(json.dumps(payload, indent=2), language="json")
+
+    if st.session_state.result:
+        result, _ = st.session_state.result
+        st.write("")
+        with st.container(border=True):
+            st.markdown(
+                '<div class="tr-muted">CHAT WITH THE ASSIGNED TEAM</div>',
+                unsafe_allow_html=True,
+            )
+            st.caption(
+                f"Talk directly to the {result.assigned_team} agent about this ticket - "
+                "grounded in that team's own skills.md persona."
+            )
+
+            if st.session_state.chat_team != result.assigned_team:
+                st.session_state.chat_history = []
+                st.session_state.chat_team = result.assigned_team
+
+            for role, content in st.session_state.chat_history:
+                with st.chat_message(role):
+                    st.write(content)
+
+            chat_input = st.chat_input(f"Message the {result.assigned_team}…")
+            if chat_input:
+                prior_history = list(st.session_state.chat_history)
+                st.session_state.chat_history.append(("user", chat_input))
+                try:
+                    reply = chat_with_department(result.assigned_team, prior_history, chat_input)
+                    st.session_state.chat_history.append(("assistant", reply))
+                except AppError as error:
+                    st.session_state.chat_history.append(("assistant", f"⚠️ {error.message}"))
+                st.rerun()
 
     st.write("")
     with st.container(border=True):
@@ -308,6 +349,6 @@ with demo_tab:
 
 st.markdown(
     '<p style="text-align:center; color:#475569; font-size:0.75rem; margin-top:18px;">'
-    "Structured JSON classification via Groq &middot; Pydantic-validated &middot; never returns malformed data</p>",
+    "Structured JSON classification via OpenAI &middot; Pydantic-validated &middot; never returns malformed data</p>",
     unsafe_allow_html=True,
 )
