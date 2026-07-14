@@ -10,16 +10,21 @@ write-up of the approach.
 import html
 import json
 import time
+from datetime import datetime
 
 import streamlit as st
 
+from ticket_router import db
+from ticket_router.config import config
 from ticket_router.errors import AppError
+from ticket_router.logger import logger
 from ticket_router.models import ASSIGNED_TEAMS, CATEGORIES, PRIORITIES, TicketRequest
 from ticket_router.services.agent_service import chat_with_department
 from ticket_router.services.ticket_routing_service import route_ticket
 from ticket_router.ui.components import (
     render_comparison_section,
     render_dot_row,
+    render_priority_hint,
     render_result_card,
 )
 from ticket_router.ui.html import flatten_html
@@ -28,6 +33,37 @@ from ticket_router.ui.theme import inject_custom_theme
 
 st.set_page_config(page_title="Smart Ticket Router", page_icon="🧭", layout="centered")
 inject_custom_theme()
+
+
+db.init_db()
+
+
+@st.cache_resource
+def _log_db_ready_once() -> None:
+    """Logs the resolved path/row counts exactly once per server process
+    (st.cache_resource caches across every session and rerun) so the server
+    log makes it obvious at startup whether an existing database was found
+    or a fresh one was created - the first thing to check if data ever
+    appears to have reset.
+
+    This is deliberately separate from db.init_db() above, which must run
+    on every single rerun (cheap, idempotent CREATE TABLE IF NOT EXISTS): if
+    init_db() were cached too, the tables would only ever be (re)created
+    once - if the database file is ever deleted or replaced while the
+    server keeps running, every write after that would crash with
+    "no such table" instead of self-healing on the next rerun.
+    """
+    logger.info(
+        "Ticket database ready",
+        {
+            "path": config.TICKET_DB_PATH,
+            "teams": len(db.list_teams()),
+            "tickets": len(db.list_all_tickets()),
+        },
+    )
+
+
+_log_db_ready_once()
 
 if "ticket_text" not in st.session_state:
     st.session_state.ticket_text = ""
@@ -53,6 +89,16 @@ if "chat_team" not in st.session_state:
     st.session_state.chat_team = None
 if "routed_ticket_text" not in st.session_state:
     st.session_state.routed_ticket_text = None
+if "ticket_id" not in st.session_state:
+    st.session_state.ticket_id = None
+if "final_priority" not in st.session_state:
+    st.session_state.final_priority = None
+if "user_priority" not in st.session_state:
+    st.session_state.user_priority = "Medium"
+if "admin_unlocked" not in st.session_state:
+    st.session_state.admin_unlocked = False
+
+_ADMIN_PRIORITY_CLASS = {"High": "high", "Medium": "medium", "Low": "low"}
 
 
 def _clear_ticket() -> None:
@@ -71,6 +117,143 @@ def _clear_ticket() -> None:
     st.session_state.chat_history = []
     st.session_state.chat_team = None
     st.session_state.routed_ticket_text = None
+    st.session_state.ticket_id = None
+    st.session_state.final_priority = None
+    st.session_state.user_priority = "Medium"
+
+
+def _format_timestamp(value: str) -> str:
+    """Renders a stored ISO timestamp (e.g. "2026-07-14T09:07:36.644976+00:00")
+    as something readable in the admin dashboard instead of raw ISO-8601.
+    """
+    return datetime.fromisoformat(value).strftime("%b %d, %Y · %I:%M %p UTC")
+
+
+def _admin_table_rows(tickets: list[dict]) -> list[dict]:
+    """Builds the row dicts for one of the admin dashboard's Open/Closed
+    dataframes. Status isn't a column here - each table is already scoped
+    to one status, so repeating it on every row would be noise.
+    """
+    return [
+        {
+            "ID": t["id"],
+            "Message": t["message"][:80] + ("…" if len(t["message"]) > 80 else ""),
+            "Category": t["category"],
+            "Team": t["assigned_team"],
+            "Priority": t["final_priority"],
+            "Created": _format_timestamp(t["created_at"]),
+        }
+        for t in tickets
+    ]
+
+
+@st.dialog("Close this ticket?")
+def _confirm_close_ticket(ticket_id: int, message_preview: str) -> None:
+    """A closing action is one-way from the customer's perspective (it can
+    be reopened, but that's an admin correcting a mistake, not the normal
+    flow) so it gets a confirmation step; reopening doesn't.
+    """
+    st.write("Are you sure you want to mark this ticket as closed?")
+    st.caption(message_preview)
+    cancel_col, confirm_col = st.columns(2)
+    if cancel_col.button("Cancel", key=f"cancel_close_{ticket_id}", width="stretch"):
+        st.rerun()
+    if confirm_col.button(
+        "Mark Closed", key=f"confirm_close_{ticket_id}", type="primary", width="stretch"
+    ):
+        db.set_status(ticket_id, "Closed")
+        st.rerun()
+
+
+@st.dialog("Delete this ticket?")
+def _confirm_delete_ticket(ticket_id: int, message_preview: str) -> None:
+    """Deletion is permanent (unlike closing, which can be undone via
+    Reopen), so this is only ever offered for already-closed tickets and
+    always gated behind its own confirmation step.
+    """
+    st.write("This permanently deletes the ticket. This cannot be undone.")
+    st.caption(message_preview)
+    cancel_col, confirm_col = st.columns(2)
+    if cancel_col.button("Cancel", key=f"cancel_delete_{ticket_id}", width="stretch"):
+        st.rerun()
+    if confirm_col.button(
+        "Delete", key=f"confirm_delete_{ticket_id}", type="primary", width="stretch"
+    ):
+        db.delete_ticket(ticket_id)
+        st.rerun()
+
+
+def _render_admin_ticket_card(ticket: dict, teams: list[str]) -> None:
+    """Renders one ticket in the admin dashboard: the accent-striped info
+    card (same `.tr-accent-*`/badge/pill language used by the Router tab's
+    result card), a team-reassignment form, and close/reopen/delete
+    actions. Priority is display-only here - it's the submitting user's
+    call (set in the Router tab), not something the admin edits.
+    """
+    accent = _ADMIN_PRIORITY_CLASS.get(ticket["final_priority"], "medium")
+    message_preview = html.escape(ticket["message"][:200])
+    reasoning = html.escape(ticket["reasoning"])
+    status_pill_class = "tr-pill-pending" if ticket["status"] == "Pending" else "tr-pill-closed"
+
+    priority_hint_html = ""
+    if ticket["final_priority"] != ticket["ai_priority"]:
+        priority_hint_html = (
+            f'<div style="color:#94a3b8; font-size:0.78rem; margin-top:4px;">'
+            f'AI suggested {html.escape(ticket["ai_priority"])}</div>'
+        )
+
+    st.write("")
+    with st.container(border=True):
+        st.markdown(
+            flatten_html(
+                f"""
+            <div class="tr-accent-{accent}" style="padding-left:14px;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:18px;">
+                    <div style="flex:1;">
+                        <div class="tr-muted">Ticket #{ticket["id"]} &middot; {html.escape(ticket["category"])}</div>
+                        <div class="tr-field-value" style="font-weight:400; color:#cbd5e1; margin-top:6px;">{message_preview}</div>
+                        <div style="color:#64748b; font-size:0.82rem; margin-top:8px;">{reasoning}</div>
+                    </div>
+                    <div style="text-align:right; white-space:nowrap;">
+                        <span class="tr-badge tr-badge-{accent}">{ticket["final_priority"]}</span>
+                        {priority_hint_html}
+                    </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px; color:#64748b; font-size:0.78rem;
+                            border-top:1px solid rgba(248,250,252,0.08); margin-top:14px; padding-top:12px;">
+                    <span class="{status_pill_class}">{ticket["status"]}</span>
+                    <span>{_format_timestamp(ticket["created_at"])}</span>
+                </div>
+            </div>
+            """
+            ),
+            unsafe_allow_html=True,
+        )
+
+        st.write("")
+        with st.form(key=f"reassign_form_{ticket['id']}"):
+            team_col, save_col = st.columns([3, 1], gap="small")
+            new_team = team_col.selectbox(
+                "Team",
+                teams,
+                index=teams.index(ticket["assigned_team"]),
+                key=f"team_{ticket['id']}",
+            )
+            reassign_clicked = save_col.form_submit_button("Reassign", width="stretch")
+        if reassign_clicked and new_team != ticket["assigned_team"]:
+            db.reassign_team(ticket["id"], new_team)
+            st.rerun()
+
+        if ticket["status"] == "Pending":
+            if st.button("Mark Closed", key=f"status_{ticket['id']}", width="stretch"):
+                _confirm_close_ticket(ticket["id"], ticket["message"][:200])
+        else:
+            reopen_col, delete_col = st.columns(2, gap="small")
+            if reopen_col.button("Reopen", key=f"status_{ticket['id']}", width="stretch"):
+                db.set_status(ticket["id"], "Pending")
+                st.rerun()
+            if delete_col.button("Delete", key=f"delete_{ticket['id']}", width="stretch"):
+                _confirm_delete_ticket(ticket["id"], ticket["message"][:200])
 
 
 def classify(message: str) -> tuple[object | None, str | None, float]:
@@ -106,7 +289,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-router_tab, chat_tab, demo_tab = st.tabs(["Router", "Chat", "Demo Mode"])
+router_tab, chat_tab, demo_tab, admin_tab = st.tabs(["Router", "Chat", "Demo Mode", "Admin"])
 
 with router_tab:
     with st.container(border=True):
@@ -147,6 +330,15 @@ with router_tab:
             label_visibility="collapsed",
         )
 
+        priority_col, _ = st.columns([1, 3])
+        priority_col.selectbox(
+            "Priority",
+            PRIORITIES,
+            key="user_priority",
+            help="Your call on urgency. The AI will suggest its own priority after routing - "
+            "if the two disagree, you'll see a hint, but your choice here is what's saved.",
+        )
+
         col1, col2, _ = st.columns([1, 1, 3])
         route_clicked = col1.button("Route Ticket", type="primary", use_container_width=True)
         col2.button("Clear", type="secondary", use_container_width=True, on_click=_clear_ticket)
@@ -161,12 +353,24 @@ with router_tab:
                 with st.spinner("Routing ticket…"):
                     result, error, elapsed_ms = classify(message)
                 if result:
+                    chosen_priority = st.session_state.user_priority
                     st.session_state.result = (result, elapsed_ms)
                     st.session_state.error = None
                     st.session_state.session_samples.append(elapsed_ms)
                     st.session_state.routed_ticket_text = message
                     st.session_state.chat_history = []
                     st.session_state.chat_team = None
+                    st.session_state.final_priority = chosen_priority
+                    st.session_state.ticket_id = db.add_ticket(
+                        message=message,
+                        category=result.category,
+                        ai_priority=result.priority,
+                        final_priority=chosen_priority,
+                        assigned_team=result.assigned_team,
+                        reasoning=result.reasoning,
+                        confidence=result.confidence,
+                        model_used=result.model_used,
+                    )
                 else:
                     st.session_state.error = error
                     st.session_state.result = None
@@ -178,10 +382,15 @@ with router_tab:
             result, elapsed_ms = st.session_state.result
             render_result_card(result, elapsed_ms)
 
+            final_priority = st.session_state.final_priority
+            if final_priority and final_priority != result.priority:
+                render_priority_hint(result.priority, final_priority)
+
             payload = {
                 "success": True,
                 "data": result.model_dump(by_alias=True),
                 "modelUsed": result.model_used,
+                "finalPriority": final_priority,
                 "processingTime": f"{elapsed_ms:.0f} ms",
             }
             st.markdown(
@@ -259,10 +468,10 @@ with chat_tab:
                 f'<div class="tr-muted">CHAT WITH {result.assigned_team.upper()}</div>',
                 unsafe_allow_html=True,
             )
-            st.caption(
-                "Grounded in that team's own skills.md persona. The conversation starts "
-                "with the ticket you just routed."
-            )
+            # st.caption(
+            #     "Grounded in that team's own skills.md persona. The conversation starts "
+            #     "with the ticket you just routed."
+            # )
 
             if st.session_state.chat_team != result.assigned_team:
                 st.session_state.chat_history = []
@@ -382,8 +591,119 @@ with demo_tab:
                 else:
                     st.error(error)
 
-st.markdown(
-    '<p style="text-align:center; color:#475569; font-size:0.75rem; margin-top:18px;">'
-    "Structured JSON classification via OpenAI &middot; Pydantic-validated &middot; never returns malformed data</p>",
-    unsafe_allow_html=True,
-)
+with admin_tab:
+    with st.container(border=True):
+        st.markdown(
+            '<div class="tr-muted">ADMIN DASHBOARD</div>'
+            '<p class="tr-subtitle">Filter tickets by team, review priority, and manually '
+            "re-route.</p>",
+            unsafe_allow_html=True,
+        )
+
+        if not config.ADMIN_PASSWORD:
+            st.error(
+                "ADMIN_PASSWORD is not set. Set it in your .env file to enable the admin "
+                "dashboard."
+            )
+        elif not st.session_state.admin_unlocked:
+            admin_password = st.text_input("Password", type="password", key="admin_password")
+            if st.button("Unlock", type="primary", key="admin_unlock"):
+                if admin_password == config.ADMIN_PASSWORD:
+                    st.session_state.admin_unlocked = True
+                    st.rerun()
+                else:
+                    st.error("Incorrect password.")
+        else:
+            teams = db.list_teams() or list(ASSIGNED_TEAMS)
+            all_tickets = db.list_all_tickets()
+            open_all = [t for t in all_tickets if t["status"] == "Pending"]
+            closed_all = [t for t in all_tickets if t["status"] == "Closed"]
+
+            st.markdown(
+                '<div class="tr-muted" style="margin-top:6px;">ALL TICKETS</div>',
+                unsafe_allow_html=True,
+            )
+            total_col, pending_col, closed_col = st.columns(3, gap="medium")
+            with total_col.container(key="admin-stat-total"):
+                st.metric("Total", len(all_tickets))
+            with pending_col.container(key="admin-stat-pending"):
+                st.metric("Pending", len(open_all))
+            with closed_col.container(key="admin-stat-closed"):
+                st.metric("Closed", len(closed_all))
+
+            st.write("")
+            if not all_tickets:
+                st.caption("No tickets routed yet - route one from the Router tab first.")
+            else:
+                st.markdown(
+                    '<div class="tr-muted" style="margin-top:4px;">OPEN TICKETS</div>',
+                    unsafe_allow_html=True,
+                )
+                if not open_all:
+                    st.caption("No open tickets.")
+                else:
+                    st.dataframe(_admin_table_rows(open_all), width="stretch", hide_index=True)
+
+                st.write("")
+                st.markdown('<div class="tr-muted">CLOSED TICKETS</div>', unsafe_allow_html=True)
+                if not closed_all:
+                    st.caption("No closed tickets yet.")
+                else:
+                    st.dataframe(_admin_table_rows(closed_all), width="stretch", hide_index=True)
+
+                st.caption(f"{len(teams)} teams · {len(all_tickets)} tickets tracked")
+
+    if config.ADMIN_PASSWORD and st.session_state.admin_unlocked:
+        st.write("")
+        st.markdown('<div class="tr-muted">FILTER BY TEAM</div>', unsafe_allow_html=True)
+        team_pending_counts = db.pending_counts_by_team()
+        admin_team = st.selectbox(
+            "Team",
+            teams,
+            key="admin_team_filter",
+            format_func=lambda t: (
+                f"🔵 {t} ({team_pending_counts[t]} pending)"
+                if team_pending_counts.get(t)
+                else f"{t} (0 pending)"
+            ),
+        )
+
+        team_counts = db.count_by_status(admin_team)
+        team_count_col1, team_count_col2 = st.columns(2, gap="medium")
+        with team_count_col1.container(key="admin-team-stat-pending"):
+            st.metric("Pending", team_counts["Pending"])
+        with team_count_col2.container(key="admin-team-stat-closed"):
+            st.metric("Closed", team_counts["Closed"])
+
+        team_tickets = db.list_tickets_for_team(admin_team)
+        open_team_tickets = [t for t in team_tickets if t["status"] == "Pending"]
+        closed_team_tickets = [t for t in team_tickets if t["status"] == "Closed"]
+
+        st.markdown(
+            f'<div class="tr-muted" style="margin-top:18px;">'
+            f"OPEN ({len(open_team_tickets)}) FOR {html.escape(admin_team.upper())}</div>",
+            unsafe_allow_html=True,
+        )
+        if not open_team_tickets:
+            st.caption("No open tickets assigned to this team.")
+        else:
+            for ticket in open_team_tickets:
+                _render_admin_ticket_card(ticket, teams)
+
+        st.write("")
+        st.markdown(
+            f'<div class="tr-muted" style="margin-top:10px;">'
+            f"CLOSED ({len(closed_team_tickets)}) FOR {html.escape(admin_team.upper())}</div>",
+            unsafe_allow_html=True,
+        )
+        if not closed_team_tickets:
+            st.caption("No closed tickets for this team.")
+        else:
+            for ticket in closed_team_tickets:
+                _render_admin_ticket_card(ticket, teams)
+
+# st.markdown(
+#     '<p style="text-align:center; color:#475569; font-size:0.75rem; margin-top:18px;">'
+#     "Structured JSON classification via OpenAI &middot; Pydantic-validated &middot; never returns malformed data</p>",
+#     unsafe_allow_html=True,
+# )

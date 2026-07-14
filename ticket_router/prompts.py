@@ -3,12 +3,16 @@ import json
 from ticket_router.models import ASSIGNED_TEAMS, CATEGORIES, PRIORITIES, TicketRouteResult
 
 CATEGORY_DEFINITIONS: dict[str, str] = {
-    "Billing": "Charges, invoices, subscriptions, payments, and cancellations.",
+    "Billing": "Charges, invoices, subscriptions, payments, and cancellations - including billing "
+    "errors like a duplicate or incorrect charge, even when the customer explicitly asks for "
+    "that charge to be refunded. The error is a billing problem; the refund is just the fix.",
     "Technical Support": "Product setup, integrations, APIs, outages, and how-to problems.",
     "Account Access": "Login failures, password resets, and locked accounts.",
     "Bug Report": "Reproducible defects in existing product behavior (crashes, broken features).",
     "Feature Request": "Suggestions or requests for new functionality that does not exist yet.",
-    "Refund": "Explicit requests for money back for an order, service, or charge.",
+    "Refund": "Requests for money back that are NOT caused by a billing error - e.g. returning an "
+    "unwanted item, cancelling before a renewal, or dissatisfaction with a legitimately-charged "
+    "purchase.",
     "Shipping": "Delivery delays, tracking issues, missing items, and customs problems.",
     "Sales": "Pricing questions, upgrades, enterprise deals, and pre-purchase inquiries.",
     "Security": "Suspected breaches, unauthorized access, fraud, and account compromise.",
@@ -61,9 +65,9 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
         "The app crashes every single time I open it since the last update. It's unusable right now.",
         TicketRouteResult(
             category="Bug Report",
-            priority="Medium",
+            priority="High",
             assignedTeam="QA",
-            reasoning="A reproducible crash after an update is a functional bug affecting usability, but not an active outage or security event.",
+            reasoning="A reproducible crash making the app unusable is a bug report, and bug reports are always treated as high priority.",
             confidence=0.9,
         ),
     ),
@@ -71,9 +75,9 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
         "I was charged $49.99 twice for the same subscription this month, please refund the extra charge.",
         TicketRouteResult(
             category="Billing",
-            priority="Medium",
+            priority="High",
             assignedTeam="Billing Team",
-            reasoning="Duplicate charge is a billing error requiring a refund, but it is not a production-wide payment failure.",
+            reasoning="A duplicate charge is a payment error, which is always treated as high priority regardless of the amount.",
             confidence=0.96,
         ),
     ),
@@ -141,9 +145,9 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
         "The invoice I received (INV-3391) shows a charge that's $25 more than the plan I actually signed up for.",
         TicketRouteResult(
             category="Billing",
-            priority="Medium",
+            priority="High",
             assignedTeam="Billing Team",
-            reasoning="A discrepancy between the invoiced amount and the agreed plan is a billing accuracy issue requiring correction.",
+            reasoning="An invoiced amount that doesn't match the customer's plan is a payment error, which is always treated as high priority.",
             confidence=0.92,
         ),
     ),
@@ -179,10 +183,12 @@ Choose exactly one category from this fixed list:
 
 If a ticket could plausibly fit more than one category (e.g. "I can't access my order" could be Account Access or Shipping), pick the single best fit based on the dominant signal in the message, and make your reasoning explain why you picked that category over the alternative.
 
+Billing vs. Refund is a common ambiguity: a ticket reporting a duplicate/incorrect charge and asking for it back is Billing (the root cause is a charge error), not Refund. Reserve Refund for money-back requests where nothing was charged incorrectly (a return, an early cancellation, buyer's remorse).
+
 # PRIORITY RULES
 Assign priority using these rules, in order of severity:
-- High: security incidents, breaches or fraud, service outages, data loss, being completely unable to log in, payment processing failures, or any production-impacting issue.
-- Medium: normal bug reports, refund requests, shipping delays, and standard account problems that are inconvenient but not blocking.
+- High: security incidents, breaches or fraud, service outages, data loss, being completely unable to log in, any production-impacting issue, any Bug Report (a reproducible defect in existing behavior is always high priority, regardless of how it's phrased), and any payment/billing error - failed or declined payments, incorrect or duplicate charges, or an invoiced amount that doesn't match the customer's plan.
+- Medium: refund requests, shipping delays, routine billing actions with no payment error (subscription changes, cancellations), and standard account problems that are inconvenient but not blocking.
 - Low: feature requests, general questions, and suggestions with no functional impact.
 
 # TEAM ASSIGNMENT RULES

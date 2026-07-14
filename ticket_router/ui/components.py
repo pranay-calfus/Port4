@@ -81,6 +81,17 @@ def render_result_card(result: TicketRouteResult, processing_time_ms: float) -> 
     )
 
 
+def render_priority_hint(ai_priority: str, chosen_priority: str) -> None:
+    """Shown under the final-priority picker when the user's chosen priority
+    differs from what the AI decided - a lightweight nudge, not a blocker,
+    since the human's call is what actually sticks.
+    """
+    st.info(
+        f"You set priority to **{chosen_priority}** - the AI suggested "
+        f"**{ai_priority}** for this ticket."
+    )
+
+
 def render_comparison_section(samples_ms: list[float], manual_seconds: float | None = None) -> None:
     """Shows the mission-required manual-vs-AI time comparison. When the
     session has real measured AI samples, those numbers are actual evidence

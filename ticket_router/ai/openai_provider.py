@@ -56,6 +56,11 @@ class OpenAIProvider:
                 api_key=config.OPENAI_API_KEY,
                 model=model,
                 max_tokens=1024,
+                # This is a structured classification task, not creative
+                # generation - temperature=0 makes routing decisions
+                # reproducible instead of the same ticket landing on a
+                # different category/priority/team from one run to the next.
+                temperature=0,
             ).bind_tools(
                 [ROUTE_TICKET_TOOL],
                 tool_choice=ROUTE_TICKET_TOOL_NAME,

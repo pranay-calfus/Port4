@@ -134,6 +134,24 @@ def test_raises_ai_unavailable_when_every_model_in_the_chain_fails(monkeypatch):
     ]
 
 
+def test_builds_chat_openai_with_zero_temperature_for_deterministic_routing(monkeypatch):
+    captured_kwargs = {}
+
+    class _FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            captured_kwargs.update(kwargs)
+
+        def bind_tools(self, *args, **kwargs):
+            return self
+
+    monkeypatch.setattr("ticket_router.ai.openai_provider.ChatOpenAI", _FakeChatOpenAI)
+    provider = OpenAIProvider()
+
+    provider._get_llm(config.OPENAI_MODEL)
+
+    assert captured_kwargs["temperature"] == 0
+
+
 def test_authentication_error_fails_fast_without_trying_other_models(monkeypatch):
     monkeypatch.setattr(config, "OPENAI_FALLBACK_MODELS", "gpt-4o,gpt-3.5-turbo")
     mock_invoke = MagicMock(side_effect=_AuthError("invalid api key"))

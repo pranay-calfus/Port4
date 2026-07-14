@@ -23,7 +23,7 @@ header[data-testid="stHeader"] {
 
 section.main > div {
     padding-top: 1.5rem;
-    max-width: 880px;
+    max-width: 1000px;
 }
 
 /* Card containers (st.container(border=True)) */
@@ -242,6 +242,31 @@ div[data-testid="stProgress"] div[role="progressbar"] > div {
     font-weight: 600;
 }
 
+/* Status pills (admin dashboard) - a deliberately different hue from the
+   priority badges above so the two scales never get visually confused.
+   Pending draws the eye (still needs action); closed recedes (muted, done). */
+.tr-pill-pending {
+    display: inline-block;
+    background: rgba(96, 165, 250, 0.14);
+    color: #93c5fd;
+    border: 1px solid rgba(96, 165, 250, 0.35);
+    border-radius: 999px;
+    padding: 2px 12px;
+    font-size: 0.76rem;
+    font-weight: 600;
+}
+
+.tr-pill-closed {
+    display: inline-block;
+    background: rgba(52, 211, 153, 0.12);
+    color: #6ee7b7;
+    border: 1px solid rgba(52, 211, 153, 0.3);
+    border-radius: 999px;
+    padding: 2px 12px;
+    font-size: 0.76rem;
+    font-weight: 600;
+}
+
 /* Scrollbars */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background-color: rgba(248, 250, 252, 0.3); border-radius: 999px; }
@@ -251,6 +276,44 @@ div[data-testid="stProgress"] div[role="progressbar"] > div {
 .tr-dot { height: 6px; flex: 1; border-radius: 999px; background: rgba(248, 250, 252, 0.14); }
 .tr-dot-active { background: #f8fafc; }
 .tr-dot-visited { background: rgba(248, 250, 252, 0.45); }
+
+/* Metric tiles (st.metric) - give the admin dashboard's counts the same
+   card treatment as .tr-stat instead of floating bare numbers. */
+div[data-testid="stMetric"] {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(248, 250, 252, 0.1);
+    border-radius: 12px;
+    padding: 14px 16px 10px;
+}
+
+div[data-testid="stMetricLabel"] {
+    color: #a1a1aa;
+}
+
+/* Stat-tile accents (admin dashboard) - a colored top edge on the Pending/
+   Closed counts, reusing the exact same blue/green as the status pills so
+   the two read as one consistent language rather than two palettes. */
+div[class*="st-key-admin-stat-pending"] div[data-testid="stMetric"],
+div[class*="st-key-admin-team-stat-pending"] div[data-testid="stMetric"] {
+    border-top: 3px solid rgba(96, 165, 250, 0.55);
+}
+
+div[class*="st-key-admin-stat-closed"] div[data-testid="stMetric"],
+div[class*="st-key-admin-team-stat-closed"] div[data-testid="stMetric"] {
+    border-top: 3px solid rgba(52, 211, 153, 0.55);
+}
+
+/* Interactive tables (admin "all tickets" overview) */
+div[data-testid="stDataFrame"] {
+    border: 1px solid rgba(248, 250, 252, 0.1);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+/* st.divider() */
+hr {
+    border-color: rgba(248, 250, 252, 0.1);
+}
 </style>
 """
 
