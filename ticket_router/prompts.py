@@ -1,6 +1,15 @@
 import json
 
-from ticket_router.models import ASSIGNED_TEAMS, CATEGORIES, PRIORITIES, TicketRouteResult
+from ticket_router.models import ASSIGNED_TEAMS, CATEGORIES, EMOTIONS, PRIORITIES, TicketRouteResult
+
+EMOTION_DEFINITIONS: dict[str, str] = {
+    "Angry": "Strong hostility - explicit anger, blame, or demands, often with intense or heated language.",
+    "Frustrated": "Annoyed or inconvenienced by the problem, but not hostile - the common tone for most support tickets.",
+    "Anxious": "Worried or stressed, usually because of urgency, financial risk, or a security concern.",
+    "Confused": "Uncertain about what happened or what to do next, asking clarifying questions rather than reporting a clear problem.",
+    "Neutral": "Matter-of-fact, no strong emotional signal either way - a plain request or statement.",
+    "Satisfied": "Positive or appreciative in tone, even while reporting an issue or making a request.",
+}
 
 CATEGORY_DEFINITIONS: dict[str, str] = {
     "Billing": "Charges, invoices, subscriptions, payments, and cancellations - including billing "
@@ -37,6 +46,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             category="Account Access",
             priority="Medium",
             assignedTeam="Support Team",
+            emotion="Frustrated",
             reasoning="User cannot reset their password via the normal flow, which is an account access issue but not a security incident.",
             confidence=0.93,
         ),
@@ -47,6 +57,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             category="Refund",
             priority="Medium",
             assignedTeam="Billing Team",
+            emotion="Frustrated",
             reasoning="Customer explicitly requests a refund for a returned, damaged item.",
             confidence=0.95,
         ),
@@ -57,6 +68,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             category="Technical Support",
             priority="High",
             assignedTeam="Engineering",
+            emotion="Anxious",
             reasoning="An active production outage affecting all customers is a critical, high-urgency infrastructure issue.",
             confidence=0.98,
         ),
@@ -67,6 +79,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             category="Bug Report",
             priority="High",
             assignedTeam="QA",
+            emotion="Angry",
             reasoning="A reproducible crash making the app unusable is a bug report, and bug reports are always treated as high priority.",
             confidence=0.9,
         ),
@@ -77,6 +90,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             category="Billing",
             priority="High",
             assignedTeam="Billing Team",
+            emotion="Frustrated",
             reasoning="A duplicate charge is a payment error, which is always treated as high priority regardless of the amount.",
             confidence=0.96,
         ),
@@ -87,6 +101,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             category="Account Access",
             priority="High",
             assignedTeam="Support Team",
+            emotion="Frustrated",
             reasoning="Complete inability to log in blocks the user from working, which the priority rules classify as high urgency.",
             confidence=0.92,
         ),
@@ -97,6 +112,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             category="Feature Request",
             priority="Low",
             assignedTeam="Engineering",
+            emotion="Satisfied",
             reasoning="This is a non-urgent enhancement suggestion with no functional impact on the current product.",
             confidence=0.94,
         ),
@@ -107,6 +123,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             category="Shipping",
             priority="Medium",
             assignedTeam="Logistics",
+            emotion="Anxious",
             reasoning="A stalled delivery is a shipping delay affecting the customer but not a critical safety or financial issue.",
             confidence=0.91,
         ),
@@ -117,6 +134,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             category="Technical Support",
             priority="High",
             assignedTeam="Engineering",
+            emotion="Frustrated",
             reasoning="A broken production API endpoint actively disrupting a customer integration is a high-urgency technical issue.",
             confidence=0.95,
         ),
@@ -127,6 +145,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             category="Security",
             priority="High",
             assignedTeam="Security Team",
+            emotion="Anxious",
             reasoning="An unauthorized account change strongly suggests a security breach, which is always treated as high priority.",
             confidence=0.93,
         ),
@@ -137,6 +156,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             category="Billing",
             priority="Medium",
             assignedTeam="Billing Team",
+            emotion="Neutral",
             reasoning="A subscription cancellation request is a standard billing action with no urgent safety or outage component.",
             confidence=0.95,
         ),
@@ -147,6 +167,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             category="Billing",
             priority="High",
             assignedTeam="Billing Team",
+            emotion="Confused",
             reasoning="An invoiced amount that doesn't match the customer's plan is a payment error, which is always treated as high priority.",
             confidence=0.92,
         ),
@@ -164,6 +185,7 @@ def _render_few_shot_block() -> str:
 
 def _build_system_prompt() -> str:
     category_lines = "\n".join(f"- {c}: {CATEGORY_DEFINITIONS[c]}" for c in CATEGORIES)
+    emotion_lines = "\n".join(f"- {e}: {EMOTION_DEFINITIONS[e]}" for e in EMOTIONS)
 
     return f"""
 # ROLE
@@ -174,8 +196,9 @@ For every customer support message you receive, determine:
 1. The correct category
 2. The priority level
 3. The team that should handle it
-4. A one-line reasoning that justifies your choices
-5. Your confidence in this classification, from 0 to 1
+4. The customer's dominant emotional tone
+5. A one-line reasoning that justifies your choices
+6. Your confidence in this classification, from 0 to 1
 
 # CLASSIFICATION RULES
 Choose exactly one category from this fixed list:
@@ -202,6 +225,12 @@ Assign exactly one team from this fixed list, based on category (use judgment wh
 - Logistics: Shipping
 - Customer Success: ambiguous or cross-cutting relationship issues that don't fit a specialist team
 
+# EMOTION RULES
+Identify the customer's dominant emotional tone from this fixed list:
+{emotion_lines}
+
+Base this purely on the tone of the message itself, independent of category/priority - a High priority ticket can be calmly worded (Neutral) and a Low priority one can be irritated (Frustrated). Pick exactly one label; when a message shows more than one emotion, choose the most dominant one.
+
 # REASONING RULES
 Write exactly one sentence of reasoning. It must cite the specific phrase or signal in the ticket that drove your decision (e.g. "the user explicitly says they cannot log in at all"). Do not restate the category name without justification.
 
@@ -211,7 +240,7 @@ Estimate confidence from 0 to 1, where 1.0 means completely certain.
 - Use lower confidence (0.4-0.7) for very short messages (e.g. a single word like "broken") that lack detail - still produce your best classification, just reflect the uncertainty in the confidence score.
 - Use lower confidence for genuinely ambiguous tickets that could reasonably fit two categories.
 - Use lower confidence and mention the uncertainty in your reasoning if the message is in a language other than English or contains a mix of languages - still attempt to classify it.
-- An angry, frustrated, or profanity-laden tone does NOT lower confidence by itself and must never cause you to refuse - classify the underlying issue calmly regardless of tone.
+- An angry, frustrated, or profanity-laden tone does NOT lower confidence by itself and must never cause you to refuse - classify the underlying issue calmly regardless of tone. It should, however, be reflected in the emotion field.
 
 # OUTPUT CONTRACT
 You must respond by calling the "route_ticket" tool exactly once, with an input object matching this schema:
@@ -219,6 +248,7 @@ You must respond by calling the "route_ticket" tool exactly once, with an input 
   "category": one of {json.dumps(list(CATEGORIES))},
   "priority": one of {json.dumps(list(PRIORITIES))},
   "assignedTeam": one of {json.dumps(list(ASSIGNED_TEAMS))},
+  "emotion": one of {json.dumps(list(EMOTIONS))},
   "reasoning": "one sentence explaining your decision",
   "confidence": a number between 0 and 1
 }}

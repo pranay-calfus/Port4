@@ -8,6 +8,7 @@ def _fake_result(category, team, priority="High", confidence=0.9):
         category=category,
         priority=priority,
         assignedTeam=team,
+        emotion="Neutral",
         reasoning="test",
         confidence=confidence,
     )
@@ -108,6 +109,32 @@ def test_admin_can_change_status_and_reply(client, monkeypatch, db_session):
         json={"message": "Looking into it."},
     )
     assert reply_response.status_code == 201
+
+
+def test_setting_status_to_its_current_value_does_not_log_a_new_activity_entry(
+    client, monkeypatch, db_session
+):
+    ticket = _escalate_as(
+        client, monkeypatch, _fake_result("Billing", "Billing Team"), "user@example.com"
+    )
+    admin = _admin_login(client, db_session, department="Billing Team")
+
+    client.patch(
+        f"/admin/tickets/{ticket['id']}/status",
+        headers=admin,
+        json={"status": "PENDING_CUSTOMER"},
+    )
+    activity_count_before = len(
+        client.get(f"/admin/tickets/{ticket['id']}", headers=admin).json()["activity"]
+    )
+
+    client.patch(
+        f"/admin/tickets/{ticket['id']}/status",
+        headers=admin,
+        json={"status": "PENDING_CUSTOMER"},
+    )
+    activity_after = client.get(f"/admin/tickets/{ticket['id']}", headers=admin).json()["activity"]
+    assert len(activity_after) == activity_count_before
 
 
 def test_admin_cannot_change_status_of_closed_ticket(client, monkeypatch, db_session):

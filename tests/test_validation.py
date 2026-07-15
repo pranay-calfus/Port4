@@ -5,6 +5,7 @@ from tests.fixtures.mock_ai_responses import (
     MALFORMED_CONFIDENCE_AS_STRING,
     MALFORMED_CONFIDENCE_OUT_OF_RANGE,
     MALFORMED_INVALID_CATEGORY,
+    MALFORMED_INVALID_EMOTION,
     MALFORMED_MISSING_FIELD,
     VALID_RESPONSES,
 )
@@ -19,7 +20,14 @@ def test_1_validates_billing_response_with_all_required_fields():
     result = TicketRouteResult.model_validate(VALID_RESPONSES[0])
     assert result.category == "Billing"
     dumped = result.model_dump(by_alias=True)
-    assert set(dumped) == {"category", "priority", "assignedTeam", "reasoning", "confidence"}
+    assert set(dumped) == {
+        "category",
+        "priority",
+        "assignedTeam",
+        "emotion",
+        "reasoning",
+        "confidence",
+    }
 
 
 def test_2_validates_technical_support_response():
@@ -65,6 +73,11 @@ def test_9_ignores_unexpected_extra_fields_but_still_validates_known_good_data()
     payload = {**VALID_RESPONSES[4], "extraField": "ignore me"}
     result = TicketRouteResult.model_validate(payload)
     assert not hasattr(result, "extraField")
+
+
+def test_rejects_response_with_invalid_emotion_enum_value():
+    with pytest.raises(ValidationError):
+        TicketRouteResult.model_validate(MALFORMED_INVALID_EMOTION)
 
 
 def test_10_validates_all_remaining_sample_ai_responses_with_no_missing_fields():

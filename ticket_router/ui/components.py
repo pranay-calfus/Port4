@@ -1,4 +1,5 @@
 import html
+from datetime import datetime
 
 import streamlit as st
 
@@ -9,6 +10,19 @@ LOW_CONFIDENCE_THRESHOLD = 0.65
 MANUAL_BASELINE_SECONDS = 120
 
 _PRIORITY_CLASS = {"High": "high", "Medium": "medium", "Low": "low"}
+
+
+def _format_timestamp(value: str) -> str:
+    """Formats an API timestamp ("2026-07-15T09:49:26.064108") into a short,
+    human-readable one ("Jul 15, 2026 · 9:49 AM") instead of showing the
+    raw ISO string with microseconds everywhere in the UI.
+    """
+    try:
+        parsed = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return value
+    hour_12 = parsed.hour % 12 or 12
+    return f'{parsed.strftime("%b %d, %Y")} · {hour_12}:{parsed.strftime("%M %p")}'
 
 
 def render_result_card(result: TicketRouteResult, processing_time_ms: float) -> None:
@@ -103,6 +117,7 @@ def render_ticket_ai_card(ticket: dict) -> None:
     reasoning = html.escape(ticket.get("ai_summary") or "")
     category = html.escape(ticket.get("ai_category") or "—")
     team = html.escape(ticket.get("department") or "—")
+    emotion = html.escape(ticket.get("ai_emotion") or "—")
 
     low_confidence_html = ""
     if confidence < LOW_CONFIDENCE_THRESHOLD:
@@ -120,13 +135,17 @@ def render_ticket_ai_card(ticket: dict) -> None:
         <div class="tr-accent-{accent}" style="padding-left: 14px;">
             {low_confidence_html}
             <div style="display:flex; gap:12px; flex-wrap:wrap;">
-                <div class="tr-field" style="flex:1; min-width:180px;">
+                <div class="tr-field" style="flex:1; min-width:150px;">
                     <div class="tr-muted">Category</div>
                     <div class="tr-field-value">{category}</div>
                 </div>
-                <div class="tr-field" style="flex:1; min-width:180px;">
+                <div class="tr-field" style="flex:1; min-width:150px;">
                     <div class="tr-muted">Priority</div>
                     <div style="margin-top:4px;"><span class="tr-badge tr-badge-{accent}">{priority}</span></div>
+                </div>
+                <div class="tr-field" style="flex:1; min-width:150px;">
+                    <div class="tr-muted">Emotion</div>
+                    <div style="margin-top:4px;"><span class="tr-pill">{emotion}</span></div>
                 </div>
             </div>
             <div style="display:flex; gap:12px; flex-wrap:wrap;">
@@ -148,7 +167,7 @@ def render_ticket_ai_card(ticket: dict) -> None:
             </div>
             <div style="display:flex; justify-content:space-between; align-items:center; color:#64748b; font-size:0.78rem;">
                 <span>{html.escape(ticket.get("ticket_number", ""))}</span>
-                <span>Created {html.escape(ticket.get("created_at", ""))}</span>
+                <span>Created {html.escape(_format_timestamp(ticket.get("created_at", "")))}</span>
             </div>
         </div>
         """
@@ -257,3 +276,45 @@ def render_dot_row(total: int, current_index: int, visited: set[int]) -> None:
             cls += " tr-dot-visited"
         dots.append(f'<div class="{cls}"></div>')
     st.markdown(f'<div class="tr-dot-row">{"".join(dots)}</div>', unsafe_allow_html=True)
+
+
+def render_ticket_timeline(activity: list[dict]) -> None:
+    """Renders a ticket's activity log as a connected vertical timeline
+    (dot + line + event + timestamp) instead of a flat list of captions,
+    so the ticket's stages actually read as a progression rather than a
+    disconnected log dump.
+    """
+    if not activity:
+        st.caption("No activity yet.")
+        return
+
+    items = []
+    last_index = len(activity) - 1
+    for i, entry in enumerate(activity):
+        marker_html = '<div class="tr-timeline-dot"></div>'
+        if i != last_index:
+            marker_html += '<div class="tr-timeline-line"></div>'
+
+        detail_html = ""
+        if entry.get("detail"):
+            detail_html = f'<div class="tr-timeline-detail">{html.escape(entry["detail"])}</div>'
+
+        items.append(
+            f"""
+            <div class="tr-timeline-item">
+                <div class="tr-timeline-marker">{marker_html}</div>
+                <div class="tr-timeline-content">
+                    <div class="tr-timeline-header">
+                        <span class="tr-timeline-event">{html.escape(entry["event_type"])}</span>
+                        <span class="tr-timeline-time">{html.escape(_format_timestamp(str(entry["created_at"])))}</span>
+                    </div>
+                    {detail_html}
+                </div>
+            </div>
+            """
+        )
+
+    st.markdown(
+        flatten_html(f'<div class="tr-timeline">{"".join(items)}</div>'),
+        unsafe_allow_html=True,
+    )

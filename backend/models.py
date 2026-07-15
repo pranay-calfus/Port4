@@ -74,6 +74,7 @@ class Ticket(Base):
     assigned_admin_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_category: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    ai_emotion: Mapped[str | None] = mapped_column(String(20), nullable=True)
     ai_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     # The AI's own priority suggestion, immutable once set - kept separate
     # from the mutable `priority` column above (which starts out equal to
@@ -81,6 +82,10 @@ class Ticket(Base):
     # reassigned by an admin later) so the UI can show "AI suggested X, you
     # chose Y" the way the original Router tab did.
     ai_priority: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # How long the route_ticket() call itself took, in milliseconds - shown
+    # against an admin's own manual-triage time in the admin dashboard's
+    # "Manual Routing" comparison panel.
+    ai_processing_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow

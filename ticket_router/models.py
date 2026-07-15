@@ -18,6 +18,8 @@ Category = Literal[
 
 Priority = Literal["High", "Medium", "Low"]
 
+Emotion = Literal["Angry", "Frustrated", "Anxious", "Confused", "Neutral", "Satisfied"]
+
 AssignedTeam = Literal[
     "Billing Team",
     "Support Team",
@@ -31,6 +33,7 @@ AssignedTeam = Literal[
 
 CATEGORIES: tuple[str, ...] = Category.__args__
 PRIORITIES: tuple[str, ...] = Priority.__args__
+EMOTIONS: tuple[str, ...] = Emotion.__args__
 ASSIGNED_TEAMS: tuple[str, ...] = AssignedTeam.__args__
 
 # Hard cap on ticket length. Anything longer is truncated (not rejected)
@@ -52,6 +55,7 @@ class TicketRouteResult(BaseModel):
     category: Category
     priority: Priority
     assigned_team: AssignedTeam = Field(alias="assignedTeam")
+    emotion: Emotion
     reasoning: str = Field(min_length=1)
     confidence: float = Field(ge=0, le=1)
     # Not part of the AI's output contract - set by the routing service

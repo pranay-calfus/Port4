@@ -8,6 +8,7 @@ def _fake_route_ticket_success(monkeypatch):
         category="Billing",
         priority="High",
         assignedTeam="Billing Team",
+        emotion="Frustrated",
         reasoning="Customer reports a duplicate charge on their invoice.",
         confidence=0.95,
     )
@@ -47,6 +48,8 @@ def test_escalate_creates_ticket_with_ai_categorization(client, monkeypatch):
     assert ticket["department"] == "Billing Team"
     assert ticket["priority"] == "High"
     assert ticket["ai_category"] == "Billing"
+    assert ticket["ai_emotion"] == "Frustrated"
+    assert ticket["ai_processing_ms"] is not None and ticket["ai_processing_ms"] >= 0
     assert [a["event_type"] for a in ticket["activity"]] == ["Ticket Created", "AI Categorized"]
     assert len(ticket["messages"]) == 1
 
@@ -119,6 +122,9 @@ def test_user_cannot_see_another_users_ticket(client, monkeypatch):
 
 def test_reply_to_resolved_ticket_reopens_to_in_progress(client, monkeypatch, db_session):
     _fake_route_ticket_success(monkeypatch)
+    monkeypatch.setattr(
+        ticket_service, "chat_with_department", lambda team, history, message: "Noted."
+    )
     headers = _register_and_login(client)
     _escalate(client, headers)
 
@@ -134,6 +140,79 @@ def test_reply_to_resolved_ticket_reopens_to_in_progress(client, monkeypatch, db
 
     ticket_response = client.get("/tickets/1", headers=headers)
     assert ticket_response.json()["status"] == "IN_PROGRESS"
+
+
+def test_customer_reply_gets_department_agent_auto_reply(client, monkeypatch):
+    _fake_route_ticket_success(monkeypatch)  # assigns "Billing Team"
+    monkeypatch.setattr(
+        ticket_service,
+        "chat_with_department",
+        lambda team, history, message: f"[{team} agent] Thanks, looking into: {message}",
+    )
+    headers = _register_and_login(client)
+    _escalate(client, headers)
+
+    response = client.post("/tickets/1/messages", headers=headers, json={"message": "Any update?"})
+    assert response.status_code == 201
+
+    detail = client.get("/tickets/1", headers=headers).json()
+    messages = detail["messages"]
+    assert messages[-1]["sender_type"] == "AI"
+    assert messages[-1]["message"] == "[Billing Team agent] Thanks, looking into: Any update?"
+    assert "AI Replied" in [a["event_type"] for a in detail["activity"]]
+
+
+def test_department_agent_stops_replying_once_admin_takes_over(client, monkeypatch, db_session):
+    _fake_route_ticket_success(monkeypatch)
+    calls = []
+    monkeypatch.setattr(
+        ticket_service,
+        "chat_with_department",
+        lambda team, history, message: calls.append(message) or "auto-reply",
+    )
+    headers = _register_and_login(client)
+    _escalate(client, headers)
+
+    from backend.models import Role, Ticket
+
+    ticket = db_session.get(Ticket, 1)
+    admin = ticket_service.create_user(
+        db_session, name="Ops", email="ops@example.com", password="adminpass1", role=Role.ADMIN
+    )
+    ticket_service.add_admin_message(db_session, ticket, admin, "A human is now on this.")
+
+    client.post("/tickets/1/messages", headers=headers, json={"message": "Hello again?"})
+    assert calls == []  # the department agent never got called after an admin reply
+
+
+def test_unassigned_department_never_gets_an_agent_reply(client, monkeypatch):
+    _fake_route_ticket_failure(monkeypatch)  # department stays "Unassigned"
+    called = []
+    monkeypatch.setattr(
+        ticket_service,
+        "chat_with_department",
+        lambda team, history, message: called.append(1) or "should not be called",
+    )
+    headers = _register_and_login(client)
+    _escalate(client, headers)
+
+    client.post("/tickets/1/messages", headers=headers, json={"message": "Hello?"})
+    assert called == []
+
+
+def test_repeated_same_status_update_does_not_add_activity_entry(client, monkeypatch, db_session):
+    _fake_route_ticket_success(monkeypatch)
+    headers = _register_and_login(client)
+    _escalate(client, headers)
+
+    from backend.models import Ticket, TicketStatus
+
+    ticket = db_session.get(Ticket, 1)
+    ticket_service.change_status(db_session, ticket, TicketStatus.PENDING_CUSTOMER)
+    activity_count_before = len(ticket.activity)
+
+    ticket_service.change_status(db_session, ticket, TicketStatus.PENDING_CUSTOMER)
+    assert len(ticket.activity) == activity_count_before
 
 
 def test_accept_solution_requires_resolved_status(client, monkeypatch):

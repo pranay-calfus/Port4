@@ -4,6 +4,7 @@ a router) so status-transition rules and activity logging happen exactly
 once, in one place.
 """
 
+import time
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -20,6 +21,7 @@ from backend.models import (
     User,
 )
 from ticket_router.errors import AppError
+from ticket_router.services.agent_service import chat_with_department
 from ticket_router.services.ticket_routing_service import route_ticket
 
 UNASSIGNED_DEPARTMENT = "Unassigned"
@@ -135,6 +137,7 @@ def escalate_to_ticket(
             )
         )
 
+    started_at = time.perf_counter()
     try:
         result = route_ticket(transcript_text)
     except AppError as error:
@@ -142,17 +145,19 @@ def escalate_to_ticket(
         db.commit()
         db.refresh(ticket)
         return ticket
+    ticket.ai_processing_ms = (time.perf_counter() - started_at) * 1000
 
     ticket.department = result.assigned_team
     ticket.priority = user_priority or result.priority
     ticket.ai_priority = result.priority
     ticket.ai_summary = result.reasoning
     ticket.ai_category = result.category
+    ticket.ai_emotion = result.emotion
     ticket.ai_confidence = result.confidence
     ticket.status = TicketStatus.OPEN
     activity_detail = (
         f"{result.category} → {result.assigned_team} "
-        f"({result.priority} priority, {result.confidence:.0%} confidence)"
+        f"({result.priority} priority, {result.emotion} tone, {result.confidence:.0%} confidence)"
     )
     if user_priority and user_priority != result.priority:
         activity_detail += f" - customer set priority to {user_priority}"
@@ -163,6 +168,46 @@ def escalate_to_ticket(
 
 
 # --- Messages ---------------------------------------------------------------
+
+
+def _department_auto_reply(db: Session, ticket: Ticket) -> None:
+    """Once a ticket has a real department (AI categorization succeeded)
+    and no human admin has taken over yet, the department's own
+    skills.md-grounded agent keeps responding to the customer directly -
+    the same "chat with the assigned team" behavior the original Router
+    tab had, just persisted into the ticket's own message thread instead of
+    a separate ephemeral chat. This is what makes the chatbot actually
+    switch personas once a department is known, instead of staying the
+    general first-line bot for the ticket's whole lifetime.
+
+    Stops permanently the moment a human admin sends a reply, so the AI and
+    the admin never talk over each other.
+    """
+    if ticket.department == UNASSIGNED_DEPARTMENT:
+        return
+    if any(m.sender_type == SenderType.ADMIN for m in ticket.messages):
+        return
+
+    ordered = sorted(ticket.messages, key=lambda m: m.created_at)
+    history = [
+        ("user" if m.sender_type == SenderType.USER else "assistant", m.message) for m in ordered
+    ]
+    if not history or history[-1][0] != "user":
+        return
+    *prior_history, (_, latest_message) = history
+
+    try:
+        reply = chat_with_department(ticket.department, prior_history, latest_message)
+    except AppError as error:
+        log_activity(db, ticket, "AI Reply Failed", detail=str(error))
+        db.commit()
+        return
+
+    db.add(
+        TicketMessage(ticket_id=ticket.id, sender_type=SenderType.AI, sender_id=None, message=reply)
+    )
+    log_activity(db, ticket, "AI Replied", detail=f"{ticket.department} agent")
+    db.commit()
 
 
 def add_user_message(db: Session, ticket: Ticket, user: User, text: str) -> TicketMessage:
@@ -182,6 +227,10 @@ def add_user_message(db: Session, ticket: Ticket, user: User, text: str) -> Tick
         )
 
     db.commit()
+    db.refresh(message)
+    db.refresh(ticket)
+
+    _department_auto_reply(db, ticket)
     db.refresh(message)
     return message
 
@@ -206,6 +255,11 @@ def add_admin_message(db: Session, ticket: Ticket, admin: User, text: str) -> Ti
 def change_status(db: Session, ticket: Ticket, new_status: TicketStatus) -> Ticket:
     if ticket.status == TicketStatus.CLOSED:
         raise ValueError("A closed ticket's status cannot be changed.")
+
+    if new_status == ticket.status:
+        # No-op: re-selecting the ticket's current status and clicking
+        # "Update Status" shouldn't log a redundant "X → X" activity entry.
+        return ticket
 
     old_status = ticket.status
     ticket.status = new_status

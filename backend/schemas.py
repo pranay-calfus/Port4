@@ -124,8 +124,10 @@ class TicketOut(BaseModel):
     assigned_admin_id: int | None
     ai_summary: str | None
     ai_category: str | None
+    ai_emotion: str | None
     ai_confidence: float | None
     ai_priority: str | None
+    ai_processing_ms: float | None
     created_at: datetime
     updated_at: datetime
     resolved_at: datetime | None
