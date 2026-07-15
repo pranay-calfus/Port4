@@ -3,7 +3,7 @@ from datetime import datetime
 
 import streamlit as st
 
-from ticket_router.models import TicketRouteResult
+from ticket_router.models import EMOTION_EMOJI, TicketRouteResult
 from ticket_router.ui.html import flatten_html
 
 LOW_CONFIDENCE_THRESHOLD = 0.65
@@ -117,7 +117,9 @@ def render_ticket_ai_card(ticket: dict) -> None:
     reasoning = html.escape(ticket.get("ai_summary") or "")
     category = html.escape(ticket.get("ai_category") or "—")
     team = html.escape(ticket.get("department") or "—")
-    emotion = html.escape(ticket.get("ai_emotion") or "—")
+    emotion_label = ticket.get("ai_emotion")
+    emotion_emoji = EMOTION_EMOJI.get(emotion_label, "")
+    emotion = html.escape(f"{emotion_emoji} {emotion_label}".strip() if emotion_label else "—")
 
     low_confidence_html = ""
     if confidence < LOW_CONFIDENCE_THRESHOLD:

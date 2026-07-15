@@ -187,3 +187,5 @@ def test_metrics_counts_open_tickets_and_per_department(client, monkeypatch, db_
     body = response.json()
     assert body["open_tickets"] == 2
     assert body["tickets_per_department"] == {"Billing Team": 2}
+    assert body["tickets_per_status"] == {"OPEN": 2}
+    assert "avg_first_response_hours" not in body

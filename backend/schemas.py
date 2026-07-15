@@ -80,6 +80,20 @@ class EscalateRequest(BaseModel):
         return value
 
 
+class BulkTicketRequest(BaseModel):
+    # One entry per pasted ticket description - each becomes its own ticket,
+    # classified independently (no chat history, no shared priority).
+    messages: list[str] = Field(min_length=1)
+
+    @field_validator("messages")
+    @classmethod
+    def strip_and_drop_blank_entries(cls, value: list[str]) -> list[str]:
+        cleaned = [m.strip() for m in value if m.strip()]
+        if not cleaned:
+            raise ValueError("at least one non-empty ticket description is required")
+        return cleaned
+
+
 # --- Ticket messages / activity -----------------------------------------
 
 

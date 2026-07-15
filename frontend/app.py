@@ -25,13 +25,13 @@ import streamlit as st
 from api_client import TICKET_STATUSES, ApiError
 
 from ticket_router.models import ASSIGNED_TEAMS, CATEGORIES, PRIORITIES
+from ticket_router.ui.charts import render_department_pie_chart, render_status_pie_chart
 from ticket_router.ui.components import (
     render_comparison_section,
     render_priority_hint,
     render_ticket_ai_card,
     render_ticket_timeline,
 )
-from ticket_router.ui.sample_tickets import load_sample_tickets
 from ticket_router.ui.theme import inject_custom_theme
 
 APP_NAME = "Ticket Triage Support System"
@@ -254,29 +254,79 @@ def _send_chat_message(token: str, message: str) -> None:
         st.session_state.chat_history.append({"role": "assistant", "content": result["reply"]})
 
 
+def _render_bulk_ticket_panel(token: str) -> None:
+    """Lets a customer paste several issues at once - one text box per
+    ticket, a "+" to add another - and route them all in one submission,
+    each classified independently (no chat, no shared priority).
+    """
+    st.session_state.setdefault("bulk_ticket_ids", [0])
+    st.session_state.setdefault("bulk_ticket_next_id", 1)
+
+    with st.container(border=True):
+        st.markdown('<div class="tr-muted">BULK TICKET SUBMISSION</div>', unsafe_allow_html=True)
+        st.caption(
+            "Paste one or more issues below - each becomes its own ticket, classified "
+            "independently by the AI."
+        )
+
+        for i, box_id in enumerate(st.session_state.bulk_ticket_ids):
+            box_col, remove_col = st.columns([6, 1])
+            box_col.text_area(
+                f"Ticket {i + 1}",
+                key=f"bulk_ticket_{box_id}",
+                label_visibility="collapsed",
+                placeholder=f"Describe issue {i + 1}...",
+            )
+            if len(st.session_state.bulk_ticket_ids) > 1 and remove_col.button(
+                "✕", key=f"remove_bulk_ticket_{box_id}", help="Remove this box"
+            ):
+                st.session_state.bulk_ticket_ids.remove(box_id)
+                st.rerun()
+
+        add_col, submit_col = st.columns([1, 4])
+        if add_col.button("➕", key="add_bulk_ticket", help="Add another ticket box"):
+            st.session_state.bulk_ticket_ids.append(st.session_state.bulk_ticket_next_id)
+            st.session_state.bulk_ticket_next_id += 1
+            st.rerun()
+
+        if submit_col.button("Route All Tickets", type="primary", key="submit_bulk_tickets"):
+            messages = [
+                st.session_state.get(f"bulk_ticket_{box_id}", "").strip()
+                for box_id in st.session_state.bulk_ticket_ids
+            ]
+            messages = [m for m in messages if m]
+            if not messages:
+                st.error("Enter at least one ticket description before routing.")
+            else:
+                try:
+                    tickets = api.bulk_create_tickets(token, messages)
+                except ApiError as error:
+                    st.error(error.detail)
+                else:
+                    st.session_state.bulk_created_tickets = tickets
+                    next_id = st.session_state.bulk_ticket_next_id
+                    st.session_state.bulk_ticket_ids = [next_id]
+                    st.session_state.bulk_ticket_next_id = next_id + 1
+                    st.rerun()
+
+    if st.session_state.get("bulk_created_tickets"):
+        tickets = st.session_state.bulk_created_tickets
+        st.success(f"Created {len(tickets)} ticket{'s' if len(tickets) != 1 else ''}.")
+        for ticket in tickets:
+            st.markdown(f"**{ticket['ticket_number']}** — {ticket['title']}")
+            render_ticket_ai_card(ticket)
+        if st.button("Dismiss", key="dismiss_bulk_results"):
+            st.session_state.bulk_created_tickets = None
+            st.rerun()
+
+
 def _render_chat_tab(token: str) -> None:
     st.subheader("Chat with support")
     st.caption(
         "Tell us what's wrong - if we can't sort it out here, you can turn this into a ticket."
     )
 
-    with st.container(border=True):
-        sample_tickets = load_sample_tickets()
-        example_col, send_example_col = st.columns([3, 1])
-        example_idx = example_col.selectbox(
-            "Try an example",
-            range(len(sample_tickets)),
-            format_func=lambda i: f"[{sample_tickets[i]['categoryLabel']}] {sample_tickets[i]['title']}",
-            index=None,
-            placeholder="Choose a sample ticket…",
-            key="sample_ticket_choice",
-        )
-        send_example_col.write("")  # vertical spacer so the button aligns with the selectbox
-        if send_example_col.button(
-            "Send example", key="send_example_button", disabled=example_idx is None
-        ):
-            _send_chat_message(token, sample_tickets[example_idx]["message"])
-            st.rerun()
+    _render_bulk_ticket_panel(token)
 
     for turn in st.session_state.chat_history:
         with st.chat_message(turn["role"]):
@@ -426,25 +476,17 @@ def _render_customer_app() -> None:
 # --- Admin app ----------------------------------------------------------------
 
 
-def _render_metrics(token: str) -> None:
+def _render_metrics(token: str, is_super_admin: bool) -> None:
     try:
         metrics = api.admin_metrics(token)
     except ApiError as error:
         st.error(error.detail)
         return
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     col1.metric("Open Tickets", metrics["open_tickets"])
     col2.metric("Total Tickets", metrics["total_tickets"])
     col3.metric(
-        "Avg First Response",
-        (
-            f"{metrics['avg_first_response_hours']:.1f}h"
-            if metrics["avg_first_response_hours"] is not None
-            else "—"
-        ),
-    )
-    col4.metric(
         "Avg Resolution Time",
         (
             f"{metrics['avg_resolution_hours']:.1f}h"
@@ -452,13 +494,22 @@ def _render_metrics(token: str) -> None:
             else "—"
         ),
     )
-    if metrics["tickets_per_department"]:
-        st.caption(
-            "Per department: "
-            + ", ".join(
-                f"{dept} ({count})" for dept, count in metrics["tickets_per_department"].items()
+
+    st.write("")
+    if is_super_admin:
+        status_col, department_col = st.columns(2)
+        with status_col, st.container(border=True):
+            st.markdown('<div class="tr-muted">TICKETS BY STATUS</div>', unsafe_allow_html=True)
+            render_status_pie_chart(metrics["tickets_per_status"], st.session_state.theme_mode)
+        with department_col, st.container(border=True):
+            st.markdown('<div class="tr-muted">TICKETS BY DEPARTMENT</div>', unsafe_allow_html=True)
+            render_department_pie_chart(
+                metrics["tickets_per_department"], st.session_state.theme_mode
             )
-        )
+    else:
+        with st.container(border=True):
+            st.markdown('<div class="tr-muted">TICKETS BY STATUS</div>', unsafe_allow_html=True)
+            render_status_pie_chart(metrics["tickets_per_status"], st.session_state.theme_mode)
 
 
 def _render_manual_routing_panel(ticket_id: int, detail: dict) -> None:
@@ -689,8 +740,9 @@ def _render_admin_queue(token: str) -> None:
 
 def _render_admin_app() -> None:
     token = st.session_state.token
+    is_super_admin = st.session_state.identity["department"] is None
 
-    _render_metrics(token)
+    _render_metrics(token, is_super_admin)
     st.divider()
     _render_admin_queue(token)
 

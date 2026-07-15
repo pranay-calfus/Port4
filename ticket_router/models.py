@@ -18,7 +18,17 @@ Category = Literal[
 
 Priority = Literal["High", "Medium", "Low"]
 
-Emotion = Literal["Angry", "Frustrated", "Anxious", "Confused", "Neutral", "Satisfied"]
+Emotion = Literal["Neutral", "Worried", "Frustrated", "Angry", "Disappointed"]
+
+# One emoji per emotion, for compact display next to the text label (see
+# ticket_router/ui/components.py: render_ticket_ai_card).
+EMOTION_EMOJI: dict[str, str] = {
+    "Neutral": "😐",
+    "Worried": "😟",
+    "Frustrated": "😤",
+    "Angry": "😠",
+    "Disappointed": "😞",
+}
 
 AssignedTeam = Literal[
     "Billing Team",

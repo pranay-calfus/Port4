@@ -110,6 +110,30 @@ def test_escalate_rejects_conversation_with_no_user_turns(client, monkeypatch):
     assert response.status_code == 422
 
 
+def test_bulk_create_tickets_creates_one_ticket_per_message(client, monkeypatch):
+    _fake_route_ticket_success(monkeypatch)
+    headers = _register_and_login(client)
+
+    response = client.post(
+        "/tickets/bulk",
+        headers=headers,
+        json={"messages": ["First issue.", "Second issue.", ""]},
+    )
+    assert response.status_code == 201
+    tickets = response.json()
+    assert len(tickets) == 2  # the blank entry is dropped
+    assert tickets[0]["ticket_number"] == "TKT-00001"
+    assert tickets[1]["ticket_number"] == "TKT-00002"
+    assert all(t["ai_category"] == "Billing" for t in tickets)
+
+
+def test_bulk_create_tickets_rejects_all_blank_messages(client):
+    headers = _register_and_login(client)
+
+    response = client.post("/tickets/bulk", headers=headers, json={"messages": ["  ", ""]})
+    assert response.status_code == 422
+
+
 def test_user_cannot_see_another_users_ticket(client, monkeypatch):
     _fake_route_ticket_success(monkeypatch)
     alice_headers = _register_and_login(client, email="alice@example.com")

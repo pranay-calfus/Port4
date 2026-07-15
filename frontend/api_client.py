@@ -100,6 +100,10 @@ def escalate_to_ticket(token: str, history: list[dict], priority: str | None = N
     )
 
 
+def bulk_create_tickets(token: str, messages: list[str]) -> list[dict]:
+    return _request("POST", "/tickets/bulk", token=token, json={"messages": messages})
+
+
 # --- User-facing tickets ------------------------------------------------------
 
 

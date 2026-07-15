@@ -384,35 +384,18 @@ def dashboard_metrics(db: Session, admin: User) -> dict:
         if t.resolved_at is not None
     ]
 
-    first_admin_reply_hours = []
-    for ticket in tickets:
-        first_admin_message = next(
-            (
-                m
-                for m in sorted(ticket.messages, key=lambda m: m.created_at)
-                if m.sender_type.value == "ADMIN"
-            ),
-            None,
-        )
-        if first_admin_message is not None:
-            first_admin_reply_hours.append(
-                (first_admin_message.created_at - ticket.created_at).total_seconds() / 3600
-            )
-
     per_department: dict[str, int] = {}
+    per_status: dict[str, int] = {}
     for ticket in tickets:
         per_department[ticket.department] = per_department.get(ticket.department, 0) + 1
+        per_status[ticket.status.value] = per_status.get(ticket.status.value, 0) + 1
 
     return {
         "open_tickets": len(open_tickets),
         "total_tickets": len(tickets),
-        "avg_first_response_hours": (
-            sum(first_admin_reply_hours) / len(first_admin_reply_hours)
-            if first_admin_reply_hours
-            else None
-        ),
         "avg_resolution_hours": (
             sum(resolution_hours) / len(resolution_hours) if resolution_hours else None
         ),
         "tickets_per_department": per_department,
+        "tickets_per_status": per_status,
     }
