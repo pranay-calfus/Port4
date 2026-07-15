@@ -1,1 +1,0 @@
-Every time I click 'Export to CSV' on the reports page, the downloaded file is corrupted and won't open in Excel. This started happening after yesterday's update.

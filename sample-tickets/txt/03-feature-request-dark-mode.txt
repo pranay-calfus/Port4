@@ -1,1 +1,0 @@
-It would be great if the dashboard supported a dark mode theme. Staring at the bright white screen at night is really hard on the eyes. Any plans to add this?

@@ -1,0 +1,47 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from backend.db import init_db
+from backend.routers import admin, auth, chat, tickets
+from ticket_router.errors import AppError
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):  # noqa: ARG001
+    init_db()
+    yield
+
+
+app = FastAPI(title="Port4 Ticket API", version="1.0.0", lifespan=lifespan)
+
+# The two Streamlit frontends (frontend/user_app.py, frontend/admin_app.py)
+# run as separate local processes on their own ports and call this API over
+# HTTP - CORS must allow both. Tighten this to real origins in production.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.exception_handler(AppError)
+def handle_app_error(request: Request, exc: AppError) -> JSONResponse:  # noqa: ARG001
+    # Safety net for AppError subclasses (AIUnavailableError, etc.) raised
+    # somewhere that didn't already convert them to an HTTPException - keeps
+    # the API's error contract clean (never a raw stack trace) end to end.
+    return JSONResponse(status_code=503, content={"detail": exc.message, "code": exc.code})
+
+
+@app.get("/health")
+def health() -> dict:
+    return {"status": "ok"}
+
+
+app.include_router(auth.router)
+app.include_router(tickets.router)
+app.include_router(admin.router)
+app.include_router(chat.router)

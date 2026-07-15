@@ -61,33 +61,41 @@ p, span, label, .stMarkdown {
     font-size: 0.92rem;
 }
 
-/* Buttons - light, high-contrast against the black background */
-div.stButton > button, div.stFormSubmitButton > button {
+/* Buttons - light, high-contrast against the black background.
+   Streamlit has changed its button markup across versions - older
+   releases put a `kind="primary"/"secondary"` attribute directly on the
+   <button> element; 1.5x+ instead renders `data-testid="stBaseButton-
+   primary"/"stBaseButton-secondary"` on a wrapping element and may not set
+   `kind` at all. Both selector forms are kept so this survives either. */
+div.stButton > button, div.stFormSubmitButton > button,
+[data-testid^="stBaseButton-"] {
     border-radius: 10px;
     font-weight: 600;
     transition: all 0.15s ease;
     border: 1px solid rgba(248, 250, 252, 0.25);
 }
 
-div.stButton > button[kind="primary"], div.stFormSubmitButton > button[kind="primary"] {
+div.stButton > button[kind="primary"], div.stFormSubmitButton > button[kind="primary"],
+[data-testid="stBaseButton-primary"] {
     background: #f8fafc;
     color: #000000;
     border: none;
     box-shadow: 0 4px 18px rgba(248, 250, 252, 0.18);
 }
 
-div.stButton > button[kind="primary"]:hover, div.stFormSubmitButton > button[kind="primary"]:hover {
+div.stButton > button[kind="primary"]:hover, div.stFormSubmitButton > button[kind="primary"]:hover,
+[data-testid="stBaseButton-primary"]:hover {
     background: #ffffff;
     box-shadow: 0 6px 22px rgba(248, 250, 252, 0.3);
     transform: translateY(-1px);
 }
 
-div.stButton > button[kind="secondary"] {
+div.stButton > button[kind="secondary"], [data-testid="stBaseButton-secondary"] {
     background: rgba(248, 250, 252, 0.06);
     color: #f8fafc;
 }
 
-div.stButton > button[kind="secondary"]:hover {
+div.stButton > button[kind="secondary"]:hover, [data-testid="stBaseButton-secondary"]:hover {
     background: rgba(248, 250, 252, 0.14);
     border-color: rgba(248, 250, 252, 0.4);
 }
@@ -101,7 +109,10 @@ div.stButton > button[kind="primary"] span,
 div.stButton > button[kind="primary"] div,
 div.stFormSubmitButton > button[kind="primary"] p,
 div.stFormSubmitButton > button[kind="primary"] span,
-div.stFormSubmitButton > button[kind="primary"] div {
+div.stFormSubmitButton > button[kind="primary"] div,
+[data-testid="stBaseButton-primary"] p,
+[data-testid="stBaseButton-primary"] span,
+[data-testid="stBaseButton-primary"] div {
     color: #000000 !important;
 }
 
@@ -110,7 +121,10 @@ div.stButton > button[kind="secondary"] span,
 div.stButton > button[kind="secondary"] div,
 div.stFormSubmitButton > button[kind="secondary"] p,
 div.stFormSubmitButton > button[kind="secondary"] span,
-div.stFormSubmitButton > button[kind="secondary"] div {
+div.stFormSubmitButton > button[kind="secondary"] div,
+[data-testid="stBaseButton-secondary"] p,
+[data-testid="stBaseButton-secondary"] span,
+[data-testid="stBaseButton-secondary"] div {
     color: #f8fafc !important;
 }
 

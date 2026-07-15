@@ -10,6 +10,21 @@ from ticket_router.models import AssignedTeam
 
 SKILLS_DIR = Path(__file__).resolve().parent.parent.parent / "skills"
 
+# System prompt for the first-line chatbot a user talks to before any
+# department/ticket exists yet - see backend/routers/chat.py. It tries to
+# help directly and only ever suggests escalating to a ticket; it never
+# claims to have created one, since ticket creation is a separate,
+# explicit user action (POST /chat/escalate).
+GENERAL_SUPPORT_SYSTEM_PROMPT = (
+    "You are the first-line support assistant for a product support desk. "
+    "Help the user resolve their issue directly using general troubleshooting "
+    "knowledge and common sense. Be concise and concrete. If the issue needs "
+    "a human specialist, account-specific action, or you cannot resolve it "
+    "in this conversation, tell the user clearly and suggest they create a "
+    "support ticket - but never claim to have created one yourself; you have "
+    "no ability to do that."
+)
+
 # Maps each assigned team to the skills.md file that defines its
 # conversational agent's persona, tone, and scope. One file per department -
 # see skills/*.md.
@@ -40,6 +55,29 @@ def load_skill_prompt(team: AssignedTeam) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _run_chat(
+    system_prompt: str, history: list[tuple[str, str]], message: str, *, log_context: dict
+) -> str:
+    llm = build_chat_llm()
+
+    messages = [SystemMessage(content=system_prompt)]
+    for role, content in history:
+        messages.append(
+            HumanMessage(content=content) if role == "user" else AIMessage(content=content)
+        )
+    messages.append(HumanMessage(content=message))
+
+    try:
+        response = llm.invoke(messages)
+    except Exception as error:  # noqa: BLE001 - surfaced to the caller as a clean AppError
+        logger.error("Chat agent call failed", {**log_context, "error": str(error)})
+        raise AIUnavailableError(
+            "The chat agent is currently unavailable.", {"cause": str(error), **log_context}
+        ) from error
+
+    return response.content
+
+
 def chat_with_department(
     team: AssignedTeam,
     history: list[tuple[str, str]],
@@ -50,22 +88,12 @@ def chat_with_department(
     (list of (role, content) tuples where role is "user" or "assistant").
     Returns the agent's reply text.
     """
-    skill_prompt = load_skill_prompt(team)
-    llm = build_chat_llm()
+    return _run_chat(load_skill_prompt(team), history, message, log_context={"team": team})
 
-    messages = [SystemMessage(content=skill_prompt)]
-    for role, content in history:
-        messages.append(
-            HumanMessage(content=content) if role == "user" else AIMessage(content=content)
-        )
-    messages.append(HumanMessage(content=message))
 
-    try:
-        response = llm.invoke(messages)
-    except Exception as error:  # noqa: BLE001 - surfaced to the UI as a clean AppError
-        logger.error("Department agent chat call failed", {"team": team, "error": str(error)})
-        raise AIUnavailableError(
-            "The department agent is currently unavailable.", {"cause": str(error), "team": team}
-        ) from error
-
-    return response.content
+def chat_with_general_agent(history: list[tuple[str, str]], message: str) -> str:
+    """Sends one message to the pre-ticket, first-line support agent (no
+    department assigned yet) - see GENERAL_SUPPORT_SYSTEM_PROMPT. Used by
+    the chat flow before a conversation is escalated into a ticket.
+    """
+    return _run_chat(GENERAL_SUPPORT_SYSTEM_PROMPT, history, message, log_context={"team": None})

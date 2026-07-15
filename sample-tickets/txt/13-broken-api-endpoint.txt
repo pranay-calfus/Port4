@@ -1,1 +1,0 @@
-Our production integration relies on your /v2/orders endpoint and it has been returning 500 Internal Server Error for the past 20 minutes. This is affecting our live systems.

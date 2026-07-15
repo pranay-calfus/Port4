@@ -52,7 +52,7 @@ The tool call arguments are re-serialized to a JSON string before parsing, so th
 
 ## 7. Graceful failure (Layer 6)
 
-If both the initial attempt and the retry fail, the service raises a typed `AIResponseError`, which the Streamlit UI catches and renders as a clean, specific error message - never a stack trace, never a crash. The same pattern applies if the AI provider is unreachable or misconfigured (`AIUnavailableError`), or if the request itself is invalid (`ValidationError`, caught before any AI call is made). See the `classify()` helper in [`app.py`](../app.py).
+If both the initial attempt and the retry fail, the service raises a typed `AIResponseError`, which the caller renders as a clean, specific error message - never a stack trace, never a crash. The same pattern applies if the AI provider is unreachable or misconfigured (`AIUnavailableError`), or if the request itself is invalid (`ValidationError`, caught before any AI call is made). See `backend/services/ticket_service.py`'s `escalate_to_ticket()`, which catches exactly this `AppError` hierarchy around its `route_ticket()` call.
 
 ## 8. Model fallback: a second kind of reliability
 
@@ -64,12 +64,12 @@ This means a single overloaded or rate-limited model doesn't take the whole app 
 
 ## 9. How a ticket is actually processed, end to end
 
-1. The user clicks "Route Ticket" in the Streamlit UI (or Demo Mode auto-submits a sample ticket).
-2. `TicketRequest` rejects empty input before any AI call happens (edge case: empty input).
+1. The user chats with the first-line bot; if it can't resolve the issue, they click "Still need help? Create a ticket" (`POST /chat/escalate`), which calls `route_ticket()` with the full conversation transcript.
+2. `TicketRequest`/the transcript text rejects empty input before any AI call happens (edge case: empty input).
 3. The message is truncated to a safe length if it's unusually long (edge case: huge input) - see `truncate_message()` in `prompt_service.py`.
 4. `OpenAIProvider` sends the system prompt, few-shot examples, and the ticket to `OPENAI_MODEL`, forcing a `route_ticket` tool call - trying the next model in its fallback chain if the current one fails (Layer 8 above).
 5. The tool call's JSON string arguments are parsed and validated against the Pydantic model.
-6. On success, the result is rendered as a result card with the measured processing time. On failure, the retry-then-repair-then-fail pipeline runs as described above, and the UI shows a clean error instead of crashing.
+6. On success, the ticket is created with the AI's category/priority/team/summary attached (`backend/services/ticket_service.py`'s `escalate_to_ticket()`). On failure, the retry-then-repair-then-fail pipeline runs as described above, and the ticket is still created (status `NEW`, for manual triage) rather than losing the customer's request.
 
 ## 10. Why prompt engineering over fine-tuning
 

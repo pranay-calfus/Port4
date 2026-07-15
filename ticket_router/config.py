@@ -11,7 +11,7 @@ load_dotenv()
 # on where `streamlit run` (or an IDE's runner) happens to be launched from,
 # silently pointing app.py and the admin dashboard at two different, mostly
 # empty databases.
-_DEFAULT_DB_PATH = str(Path(__file__).resolve().parent.parent / "tickets.db")
+_DEFAULT_DATABASE_URL = "sqlite:///" + str(Path(__file__).resolve().parent.parent / "port4.db")
 
 
 class Config:
@@ -33,13 +33,19 @@ class Config:
     # ticket_router.ai.openai_provider.build_model_chain.
     OPENAI_FALLBACK_MODELS: str = os.getenv("OPENAI_FALLBACK_MODELS", "")
 
-    # Path to the SQLite database file that stores routed tickets and teams.
-    TICKET_DB_PATH: str = os.getenv("TICKET_DB_PATH", _DEFAULT_DB_PATH)
+    # SQLAlchemy connection URL for the backend API's database (users,
+    # tickets, ticket_messages, ticket_activity - see backend/models.py).
+    # Defaults to a SQLite file so the app runs with zero setup; swapping to
+    # Postgres later is a matter of changing this URL, not the code, since
+    # everything above this is SQLAlchemy.
+    DATABASE_URL: str = os.getenv("DATABASE_URL", _DEFAULT_DATABASE_URL)
 
-    # Shared password gating the admin dashboard (pages/🛠️_Admin_Dashboard.py).
-    # Left empty by default - the dashboard refuses to unlock until this is
-    # explicitly set, so it's never accidentally exposed unauthenticated.
-    ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "")
+    # Secret key signing JWT access tokens issued by backend/auth.py. Must
+    # be set explicitly in production - see backend.auth for the startup
+    # check that refuses the insecure default outside local dev.
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "insecure-dev-secret-change-me-32bytes+")
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))
 
 
 config = Config()

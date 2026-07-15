@@ -81,6 +81,82 @@ def render_result_card(result: TicketRouteResult, processing_time_ms: float) -> 
     )
 
 
+def render_ticket_ai_card(ticket: dict) -> None:
+    """Renders a ticket's AI classification using the same dark card style
+    as render_result_card() above - category, priority badge, assigned
+    department, a confidence bar, and the one-line AI summary/reasoning.
+
+    Takes plain ticket API fields (not the strict TicketRouteResult
+    pydantic model) since a ticket's department can be "Unassigned" and its
+    priority can have been reassigned since creation - neither of which
+    would pass TicketRouteResult's validation, but both of which are still
+    valid things to display here.
+    """
+    if not ticket.get("ai_summary"):
+        st.info("AI categorization isn't available for this ticket yet - it needs manual triage.")
+        return
+
+    priority = ticket["priority"]
+    accent = _PRIORITY_CLASS.get(priority, "medium")
+    confidence = ticket.get("ai_confidence") or 0.0
+    confidence_pct = round(confidence * 100)
+    reasoning = html.escape(ticket.get("ai_summary") or "")
+    category = html.escape(ticket.get("ai_category") or "—")
+    team = html.escape(ticket.get("department") or "—")
+
+    low_confidence_html = ""
+    if confidence < LOW_CONFIDENCE_THRESHOLD:
+        low_confidence_html = f"""
+        <div class="tr-low-confidence">
+            Low confidence ({confidence_pct}%) - this ticket was short, ambiguous, or lacked detail.
+            The classification below is still the model's best guess; consider a quick manual check
+            or asking the customer for more detail.
+        </div>
+        """
+
+    st.markdown(
+        flatten_html(
+            f"""
+        <div class="tr-accent-{accent}" style="padding-left: 14px;">
+            {low_confidence_html}
+            <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                <div class="tr-field" style="flex:1; min-width:180px;">
+                    <div class="tr-muted">Category</div>
+                    <div class="tr-field-value">{category}</div>
+                </div>
+                <div class="tr-field" style="flex:1; min-width:180px;">
+                    <div class="tr-muted">Priority</div>
+                    <div style="margin-top:4px;"><span class="tr-badge tr-badge-{accent}">{priority}</span></div>
+                </div>
+            </div>
+            <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                <div class="tr-field" style="flex:1; min-width:180px;">
+                    <div class="tr-muted">Assigned Team</div>
+                    <div class="tr-field-value">{team}</div>
+                </div>
+                <div class="tr-field" style="flex:1; min-width:180px;">
+                    <div class="tr-muted">Confidence</div>
+                    <div class="tr-field-value">{confidence_pct}%</div>
+                    <div style="height:6px; border-radius:999px; background:rgba(248,250,252,0.12); margin-top:6px; overflow:hidden;">
+                        <div style="height:100%; width:{confidence_pct}%; background:#f8fafc;"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="tr-field">
+                <div class="tr-muted">Reason</div>
+                <div class="tr-field-value" style="font-weight:400; color:#cbd5e1;">{reasoning}</div>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; color:#64748b; font-size:0.78rem;">
+                <span>{html.escape(ticket.get("ticket_number", ""))}</span>
+                <span>Created {html.escape(ticket.get("created_at", ""))}</span>
+            </div>
+        </div>
+        """
+        ),
+        unsafe_allow_html=True,
+    )
+
+
 def render_priority_hint(ai_priority: str, chosen_priority: str) -> None:
     """Shown under the final-priority picker when the user's chosen priority
     differs from what the AI decided - a lightweight nudge, not a blocker,
