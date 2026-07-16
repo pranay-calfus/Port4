@@ -43,9 +43,6 @@ _DARK_PALETTE = {
     "TAB_ACTIVE_TEXT": "#000000",
     "SCROLLBAR": "rgba(248, 250, 252, 0.3)",
     "DIVIDER": "rgba(248, 250, 252, 0.1)",
-    "DOT_BG": "rgba(248, 250, 252, 0.14)",
-    "DOT_ACTIVE": "#f8fafc",
-    "DOT_VISITED": "rgba(248, 250, 252, 0.45)",
     "TIMELINE_DOT": "#f8fafc",
     "TIMELINE_DOT_BORDER": "rgba(0, 0, 0, 0.4)",
     "TIMELINE_LINE": "rgba(248, 250, 252, 0.2)",
@@ -105,9 +102,6 @@ _LIGHT_PALETTE = {
     "TAB_ACTIVE_TEXT": "#ffffff",
     "SCROLLBAR": "rgba(15, 23, 42, 0.25)",
     "DIVIDER": "rgba(15, 23, 42, 0.1)",
-    "DOT_BG": "rgba(15, 23, 42, 0.1)",
-    "DOT_ACTIVE": "#0f172a",
-    "DOT_VISITED": "rgba(15, 23, 42, 0.4)",
     "TIMELINE_DOT": "#0f172a",
     "TIMELINE_DOT_BORDER": "rgba(255, 255, 255, 0.6)",
     "TIMELINE_LINE": "rgba(15, 23, 42, 0.16)",
@@ -458,12 +452,6 @@ div[data-testid="stProgress"] div[role="progressbar"] > div {
 /* Scrollbars */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background-color: __SCROLLBAR__; border-radius: 999px; }
-
-/* Progress dots (sample-ticket / demo-style steppers) */
-.tr-dot-row { display: flex; gap: 6px; margin-bottom: 14px; }
-.tr-dot { height: 6px; flex: 1; border-radius: 999px; background: __DOT_BG__; }
-.tr-dot-active { background: __DOT_ACTIVE__; }
-.tr-dot-visited { background: __DOT_VISITED__; }
 
 /* Ticket activity timeline - a connected vertical stepper instead of a
    flat list of captions, so the ticket's stages actually read as stages. */

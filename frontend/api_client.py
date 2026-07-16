@@ -1,7 +1,7 @@
-"""Thin HTTP client shared by both Streamlit frontends. Neither frontend
-touches a database directly - everything goes through the backend API,
-which is what actually keeps the user and admin surfaces isolated (they're
-separate processes that only ever call their own slice of the API).
+"""Thin HTTP client used by the Streamlit app (frontend/app.py). The
+frontend never touches a database directly - everything goes through this
+module, which is what actually keeps the customer and admin surfaces
+isolated (each only ever calls the slice of the API its role is allowed to).
 """
 
 import os
@@ -11,7 +11,7 @@ import httpx
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 # Mirrors backend.models.TicketStatus - kept as a plain tuple here (rather
-# than importing the backend package) since the frontends only ever talk to
+# than importing the backend package) since the frontend only ever talks to
 # the API over HTTP, never to backend internals directly.
 TICKET_STATUSES = (
     "NEW",
@@ -85,19 +85,7 @@ def forgot_password(email: str) -> dict:
     return _request("POST", "/auth/forgot-password", json={"email": email})
 
 
-# --- Chat / escalation ------------------------------------------------------
-
-
-def send_chat_message(token: str, message: str, history: list[dict]) -> dict:
-    return _request(
-        "POST", "/chat/message", token=token, json={"message": message, "history": history}
-    )
-
-
-def escalate_to_ticket(token: str, history: list[dict], priority: str | None = None) -> dict:
-    return _request(
-        "POST", "/chat/escalate", token=token, json={"history": history, "priority": priority}
-    )
+# --- Ticket creation ---------------------------------------------------------
 
 
 def bulk_create_tickets(token: str, messages: list[str]) -> list[dict]:

@@ -4,7 +4,7 @@ from ticket_router.models import MAX_TICKET_LENGTH
 def truncate_message(message: str) -> tuple[str, bool]:
     """Enforces the documented input-length limit before sending a ticket to
     the AI. Truncation (not rejection) keeps huge inputs usable - see the
-    "huge input" edge case in docs/AI-Concepts.md.
+    "very long message" edge case in the README.
 
     Returns (text, was_truncated).
     """

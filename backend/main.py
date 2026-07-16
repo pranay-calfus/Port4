@@ -17,9 +17,9 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
 
 app = FastAPI(title="Port4 Ticket API", version="1.0.0", lifespan=lifespan)
 
-# The two Streamlit frontends (frontend/user_app.py, frontend/admin_app.py)
-# run as separate local processes on their own ports and call this API over
-# HTTP - CORS must allow both. Tighten this to real origins in production.
+# The Streamlit frontend (frontend/app.py) runs as a separate local process
+# on its own port and calls this API over HTTP. Tighten this to the real
+# origin in production.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

@@ -6,11 +6,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Anchored to the repo root (not the process's current working directory) -
-# same reasoning as SAMPLE_TICKETS_PATH/SKILLS_DIR elsewhere in this
-# codebase. A cwd-relative path would resolve to a different file depending
-# on where `streamlit run` (or an IDE's runner) happens to be launched from,
-# silently pointing app.py and the admin dashboard at two different, mostly
-# empty databases.
+# same reasoning as SKILLS_DIR elsewhere in this codebase. A cwd-relative
+# path would resolve to a different file depending on where `streamlit run`
+# (or an IDE's runner) happens to be launched from, silently pointing
+# app.py and the admin dashboard at two different, mostly empty databases.
 _DEFAULT_DATABASE_URL = "sqlite:///" + str(Path(__file__).resolve().parent.parent / "port4.db")
 
 
