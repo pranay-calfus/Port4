@@ -13,7 +13,6 @@ from backend.schemas import (
 )
 from backend.services import ticket_service
 from ticket_router.errors import AppError
-from ticket_router.services.agent_service import chat_with_general_agent
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -25,7 +24,7 @@ def send_message(
 ):
     history_tuples = [(turn.role, turn.content) for turn in payload.history]
     try:
-        reply = chat_with_general_agent(history_tuples, payload.message)
+        reply, _classification = ticket_service.reply_to_chat(history_tuples, payload.message)
     except AppError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=error.message

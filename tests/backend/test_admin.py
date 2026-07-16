@@ -39,6 +39,7 @@ def _escalate_as(client, monkeypatch, result, email):
     from backend.services import ticket_service as ts
 
     monkeypatch.setattr(ts, "route_ticket", lambda message: result)
+    monkeypatch.setattr(ts, "chat_with_department", lambda team, history, message: "Noted.")
     headers = _register_and_login(client, email=email)
     return client.post(
         "/chat/escalate",
@@ -188,4 +189,58 @@ def test_metrics_counts_open_tickets_and_per_department(client, monkeypatch, db_
     assert body["open_tickets"] == 2
     assert body["tickets_per_department"] == {"Billing Team": 2}
     assert body["tickets_per_status"] == {"OPEN": 2}
+    assert body["tickets_per_priority"] == {"High": 2}
+    assert body["tickets_per_emotion"] == {"Neutral": 2}
     assert "avg_first_response_hours" not in body
+    assert "by_department" not in body  # only super-admins get the per-team breakdown
+
+
+def test_admin_still_sees_status_and_full_timeline_after_ticket_is_closed(
+    client, monkeypatch, db_session
+):
+    ticket = _escalate_as(
+        client, monkeypatch, _fake_result("Billing", "Billing Team"), "user@example.com"
+    )
+    admin = _admin_login(client, db_session, department="Billing Team")
+
+    from backend.models import Ticket, TicketStatus
+
+    db_ticket = db_session.get(Ticket, ticket["id"])
+    ticket_service.change_status(db_session, db_ticket, TicketStatus.RESOLVED)
+    ticket_service.change_status(db_session, db_ticket, TicketStatus.CLOSED)
+
+    queue_response = client.get("/admin/tickets", headers=admin)
+    queue_tickets = queue_response.json()
+    assert len(queue_tickets) == 1
+    assert queue_tickets[0]["status"] == "CLOSED"
+
+    detail_response = client.get(f"/admin/tickets/{ticket['id']}", headers=admin)
+    detail = detail_response.json()
+    assert detail["status"] == "CLOSED"
+    assert [a["event_type"] for a in detail["activity"]] == [
+        "Ticket Created",
+        "AI Categorized",
+        "AI Replied",
+        "Status Changed",
+        "Status Changed",
+    ]
+    assert len(detail["messages"]) == 2  # escalation transcript + the bot's initial reply
+
+
+def test_super_admin_metrics_include_per_department_breakdown(client, monkeypatch, db_session):
+    _escalate_as(client, monkeypatch, _fake_result("Billing", "Billing Team"), "user1@example.com")
+    _escalate_as(
+        client, monkeypatch, _fake_result("Bug Report", "Engineering"), "user2@example.com"
+    )
+    _escalate_as(
+        client, monkeypatch, _fake_result("Bug Report", "Engineering"), "user3@example.com"
+    )
+
+    admin = _admin_login(client, db_session, department=None)
+    response = client.get("/admin/metrics", headers=admin)
+    body = response.json()
+    assert body["total_tickets"] == 3
+    assert set(body["by_department"].keys()) == {"Billing Team", "Engineering"}
+    assert body["by_department"]["Billing Team"]["total_tickets"] == 1
+    assert body["by_department"]["Engineering"]["total_tickets"] == 2
+    assert body["by_department"]["Engineering"]["tickets_per_status"] == {"OPEN": 2}

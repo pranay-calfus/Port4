@@ -74,6 +74,17 @@ class TicketRouteResult(BaseModel):
     model_used: str | None = Field(default=None, exclude=True)
 
 
+class ResolutionCheck(BaseModel):
+    """Output contract for the resolution-detection classifier (see
+    ticket_router.services.resolution_service.check_resolution) - decides
+    whether a customer's latest reply confirms their issue is resolved and
+    the ticket can be closed.
+    """
+
+    resolved: bool
+    reasoning: str = Field(min_length=1)
+
+
 class TicketRequest(BaseModel):
     message: str = Field(min_length=1)
 

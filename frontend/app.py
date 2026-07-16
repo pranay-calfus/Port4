@@ -25,7 +25,12 @@ import streamlit as st
 from api_client import TICKET_STATUSES, ApiError
 
 from ticket_router.models import ASSIGNED_TEAMS, CATEGORIES, PRIORITIES
-from ticket_router.ui.charts import render_department_pie_chart, render_status_pie_chart
+from ticket_router.ui.charts import (
+    render_department_bar_chart,
+    render_emotion_bar_chart,
+    render_priority_pie_chart,
+    render_status_bar_chart,
+)
 from ticket_router.ui.components import (
     render_comparison_section,
     render_priority_hint,
@@ -45,8 +50,6 @@ st.set_page_config(page_title=APP_NAME, page_icon=APP_ICON, layout="wide")
 for key, default in {
     "token": None,
     "identity": None,
-    "chat_history": [],
-    "last_escalated_ticket": None,
     "selected_ticket_id": None,
     "theme_mode": "dark",
 }.items():
@@ -85,8 +88,6 @@ def _set_session(token: str, identity: dict) -> None:
 def _logout() -> None:
     st.session_state.token = None
     st.session_state.identity = None
-    st.session_state.chat_history = []
-    st.session_state.last_escalated_ticket = None
     st.session_state.selected_ticket_id = None
     if "token" in st.query_params:
         del st.query_params["token"]
@@ -105,6 +106,25 @@ def _initials(name: str) -> str:
     if len(parts) == 1:
         return parts[0][0].upper()
     return (parts[0][0] + parts[-1][0]).upper()
+
+
+def _scroll_to_anchor(anchor_id: str) -> None:
+    """Scrolls the page down to the element with id=`anchor_id`. Streamlit
+    has no native "scroll to element" API and a freshly opened ticket
+    detail renders below a (possibly long) ticket list, so without this a
+    click on a ticket looks like nothing happened until the user manually
+    scrolls down. Runs in an iframe, so it must reach through to
+    `window.parent` to touch the real page.
+    """
+    st.iframe(
+        f"""
+        <script>
+            const el = window.parent.document.getElementById("{anchor_id}");
+            if (el) {{ el.scrollIntoView({{behavior: "smooth", block: "start"}}); }}
+        </script>
+        """,
+        height=1,
+    )
 
 
 def _render_header() -> None:
@@ -215,13 +235,7 @@ def _render_landing() -> None:
 # --- Customer app -------------------------------------------------------------
 
 
-def _render_escalation_result(ticket: dict) -> None:
-    st.success(f"Ticket {ticket['ticket_number']} created.")
-    render_ticket_ai_card(ticket)
-
-    if ticket.get("ai_priority") and ticket["priority"] != ticket["ai_priority"]:
-        render_priority_hint(ticket["ai_priority"], ticket["priority"])
-
+def _render_ticket_json(ticket: dict) -> None:
     payload = {
         "success": True,
         "data": {
@@ -242,33 +256,22 @@ def _render_escalation_result(ticket: dict) -> None:
     st.code(json.dumps(payload, indent=2), language="json")
 
 
-def _send_chat_message(token: str, message: str) -> None:
-    prior_history = list(st.session_state.chat_history)
-    st.session_state.chat_history.append({"role": "user", "content": message})
-    st.session_state.last_escalated_ticket = None
-    try:
-        result = api.send_chat_message(token, message, prior_history)
-    except ApiError as error:
-        st.session_state.chat_history.append({"role": "assistant", "content": f"⚠️ {error.detail}"})
-    else:
-        st.session_state.chat_history.append({"role": "assistant", "content": result["reply"]})
-
-
-def _render_bulk_ticket_panel(token: str) -> None:
-    """Lets a customer paste several issues at once - one text box per
-    ticket, a "+" to add another - and route them all in one submission,
-    each classified independently (no chat, no shared priority).
+def _render_new_ticket_tab(token: str) -> None:
+    """One text box per issue, a "+" to add another - each becomes its own
+    ticket, classified independently. This is the only way a customer
+    creates a ticket; there is no separate single-issue path.
     """
+    st.subheader("Describe your issue(s)")
+    st.caption(
+        "Paste one or more issues below - each becomes its own ticket, classified "
+        "independently and routed to the right team."
+    )
+
     st.session_state.setdefault("bulk_ticket_ids", [0])
     st.session_state.setdefault("bulk_ticket_next_id", 1)
+    st.session_state.setdefault("bulk_submitting", False)
 
     with st.container(border=True):
-        st.markdown('<div class="tr-muted">BULK TICKET SUBMISSION</div>', unsafe_allow_html=True)
-        st.caption(
-            "Paste one or more issues below - each becomes its own ticket, classified "
-            "independently by the AI."
-        )
-
         for i, box_id in enumerate(st.session_state.bulk_ticket_ids):
             box_col, remove_col = st.columns([6, 1])
             box_col.text_area(
@@ -276,20 +279,36 @@ def _render_bulk_ticket_panel(token: str) -> None:
                 key=f"bulk_ticket_{box_id}",
                 label_visibility="collapsed",
                 placeholder=f"Describe issue {i + 1}...",
+                disabled=st.session_state.bulk_submitting,
             )
-            if len(st.session_state.bulk_ticket_ids) > 1 and remove_col.button(
-                "✕", key=f"remove_bulk_ticket_{box_id}", help="Remove this box"
+            if (
+                len(st.session_state.bulk_ticket_ids) > 1
+                and not st.session_state.bulk_submitting
+                and remove_col.button(
+                    "✕", key=f"remove_bulk_ticket_{box_id}", help="Remove this box"
+                )
             ):
                 st.session_state.bulk_ticket_ids.remove(box_id)
                 st.rerun()
 
         add_col, submit_col = st.columns([1, 4])
-        if add_col.button("➕", key="add_bulk_ticket", help="Add another ticket box"):
+        if add_col.button(
+            "➕",
+            key="add_bulk_ticket",
+            help="Add another ticket box",
+            disabled=st.session_state.bulk_submitting,
+        ):
             st.session_state.bulk_ticket_ids.append(st.session_state.bulk_ticket_next_id)
             st.session_state.bulk_ticket_next_id += 1
             st.rerun()
 
-        if submit_col.button("Route All Tickets", type="primary", key="submit_bulk_tickets"):
+        submit_clicked = submit_col.button(
+            "Route All Tickets" if not st.session_state.bulk_submitting else "Routing…",
+            type="primary",
+            key="submit_bulk_tickets",
+            disabled=st.session_state.bulk_submitting,
+        )
+        if submit_clicked and not st.session_state.bulk_submitting:
             messages = [
                 st.session_state.get(f"bulk_ticket_{box_id}", "").strip()
                 for box_id in st.session_state.bulk_ticket_ids
@@ -298,76 +317,48 @@ def _render_bulk_ticket_panel(token: str) -> None:
             if not messages:
                 st.error("Enter at least one ticket description before routing.")
             else:
-                try:
-                    tickets = api.bulk_create_tickets(token, messages)
-                except ApiError as error:
-                    st.error(error.detail)
-                else:
-                    st.session_state.bulk_created_tickets = tickets
-                    next_id = st.session_state.bulk_ticket_next_id
-                    st.session_state.bulk_ticket_ids = [next_id]
-                    st.session_state.bulk_ticket_next_id = next_id + 1
-                    st.rerun()
+                # Set the guard and rerun *before* calling the (slow -
+                # one AI classification call per ticket) API, so the button
+                # is already disabled if the user clicks again while it's
+                # in flight - a single click can otherwise fire twice on a
+                # slow connection and create duplicate tickets.
+                st.session_state.bulk_submitting = True
+                st.rerun()
+
+    if st.session_state.bulk_submitting:
+        messages = [
+            st.session_state.get(f"bulk_ticket_{box_id}", "").strip()
+            for box_id in st.session_state.bulk_ticket_ids
+        ]
+        messages = [m for m in messages if m]
+        with st.spinner(f"Routing {len(messages)} ticket{'s' if len(messages) != 1 else ''}…"):
+            try:
+                tickets = api.bulk_create_tickets(token, messages)
+            except ApiError as error:
+                st.error(error.detail)
+            else:
+                st.session_state.bulk_created_tickets = tickets
+                next_id = st.session_state.bulk_ticket_next_id
+                st.session_state.bulk_ticket_ids = [next_id]
+                st.session_state.bulk_ticket_next_id = next_id + 1
+        st.session_state.bulk_submitting = False
+        st.rerun()
 
     if st.session_state.get("bulk_created_tickets"):
         tickets = st.session_state.bulk_created_tickets
         st.success(f"Created {len(tickets)} ticket{'s' if len(tickets) != 1 else ''}.")
+        # Each ticket gets its own expanded chat window right here (not just
+        # in "My Tickets") - _render_ticket_detail already has the AI's
+        # initial reply, so the conversation is visibly live immediately,
+        # and its reply box/keys are namespaced by ticket_id so multiple
+        # tickets never collide.
         for ticket in tickets:
-            st.markdown(f"**{ticket['ticket_number']}** — {ticket['title']}")
-            render_ticket_ai_card(ticket)
+            with st.expander(f"{ticket['ticket_number']} — {ticket['title']}", expanded=True):
+                _render_ticket_detail(token, ticket["id"])
+                _render_ticket_json(ticket)
         if st.button("Dismiss", key="dismiss_bulk_results"):
             st.session_state.bulk_created_tickets = None
             st.rerun()
-
-
-def _render_chat_tab(token: str) -> None:
-    st.subheader("Chat with support")
-    st.caption(
-        "Tell us what's wrong - if we can't sort it out here, you can turn this into a ticket."
-    )
-
-    _render_bulk_ticket_panel(token)
-
-    for turn in st.session_state.chat_history:
-        with st.chat_message(turn["role"]):
-            st.write(turn["content"])
-
-    prompt = st.chat_input("Describe your issue...")
-    if prompt:
-        _send_chat_message(token, prompt)
-        st.rerun()
-
-    if st.session_state.chat_history:
-        st.divider()
-        with st.container(border=True):
-            priority_col, button_col = st.columns([1, 2])
-            priority_col.selectbox(
-                "Priority",
-                PRIORITIES,
-                index=1,
-                key="escalate_priority",
-                help="Your call on urgency. The AI will suggest its own priority after routing - "
-                "if the two disagree, you'll see a hint, but your choice here is what's saved.",
-            )
-            if button_col.button(
-                "Still need help? Create a ticket", type="primary", key="escalate_button"
-            ):
-                try:
-                    ticket = api.escalate_to_ticket(
-                        token,
-                        st.session_state.chat_history,
-                        priority=st.session_state.escalate_priority,
-                    )
-                except ApiError as error:
-                    st.error(error.detail)
-                else:
-                    st.session_state.chat_history = []
-                    st.session_state.selected_ticket_id = ticket["id"]
-                    st.session_state.last_escalated_ticket = ticket
-                    st.rerun()
-
-    if st.session_state.last_escalated_ticket:
-        _render_escalation_result(st.session_state.last_escalated_ticket)
 
 
 def _render_ticket_detail(token: str, ticket_id: int) -> None:
@@ -376,6 +367,9 @@ def _render_ticket_detail(token: str, ticket_id: int) -> None:
     except ApiError as error:
         st.error(error.detail)
         return
+
+    st.markdown(f'<div id="ticket-detail-{ticket_id}"></div>', unsafe_allow_html=True)
+    _scroll_to_anchor(f"ticket-detail-{ticket_id}")
 
     st.divider()
     with st.container(border=True):
@@ -396,7 +390,8 @@ def _render_ticket_detail(token: str, ticket_id: int) -> None:
                 st.write(message["message"])
 
         st.markdown(
-            '<div class="tr-muted" style="margin-top:14px;">TIMELINE</div>', unsafe_allow_html=True
+            '<div class="tr-muted" style="margin-top:14px;">🕒 TIMELINE</div>',
+            unsafe_allow_html=True,
         )
         render_ticket_timeline(detail["activity"])
 
@@ -466,14 +461,51 @@ def _render_tickets_tab(token: str) -> None:
 def _render_customer_app() -> None:
     token = st.session_state.token
 
-    chat_tab, tickets_tab = st.tabs(["Chat", "My Tickets"])
-    with chat_tab:
-        _render_chat_tab(token)
+    new_ticket_tab, tickets_tab = st.tabs(["New Ticket", "My Tickets"])
+    with new_ticket_tab:
+        _render_new_ticket_tab(token)
     with tickets_tab:
         _render_tickets_tab(token)
 
 
 # --- Admin app ----------------------------------------------------------------
+
+
+def _render_stat_row(metrics: dict) -> None:
+    col1, col2, col3 = st.columns(3)
+    col1.metric("📥 Open Tickets", metrics["open_tickets"])
+    col2.metric("🗂️ Total Tickets", metrics["total_tickets"])
+    col3.metric(
+        "⏱️ Avg Resolution Time",
+        (
+            f"{metrics['avg_resolution_hours']:.1f}h"
+            if metrics["avg_resolution_hours"] is not None
+            else "—"
+        ),
+    )
+
+
+def _render_metric_charts(metrics: dict, is_super_admin: bool) -> None:
+    mode = st.session_state.theme_mode
+
+    row1_col1, row1_col2 = st.columns(2)
+    with row1_col1, st.container(border=True):
+        st.markdown('<div class="tr-muted">📊 TICKETS BY STATUS</div>', unsafe_allow_html=True)
+        render_status_bar_chart(metrics["tickets_per_status"], mode)
+    with row1_col2, st.container(border=True):
+        st.markdown('<div class="tr-muted">🎯 TICKETS BY PRIORITY</div>', unsafe_allow_html=True)
+        render_priority_pie_chart(metrics["tickets_per_priority"], mode)
+
+    row2_col1, row2_col2 = st.columns(2)
+    with row2_col1, st.container(border=True):
+        st.markdown('<div class="tr-muted">💬 TICKETS BY EMOTION</div>', unsafe_allow_html=True)
+        render_emotion_bar_chart(metrics["tickets_per_emotion"], mode)
+    if is_super_admin:
+        with row2_col2, st.container(border=True):
+            st.markdown(
+                '<div class="tr-muted">🏢 TICKETS BY DEPARTMENT</div>', unsafe_allow_html=True
+            )
+            render_department_bar_chart(metrics["tickets_per_department"], mode)
 
 
 def _render_metrics(token: str, is_super_admin: bool) -> None:
@@ -483,33 +515,20 @@ def _render_metrics(token: str, is_super_admin: bool) -> None:
         st.error(error.detail)
         return
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Open Tickets", metrics["open_tickets"])
-    col2.metric("Total Tickets", metrics["total_tickets"])
-    col3.metric(
-        "Avg Resolution Time",
-        (
-            f"{metrics['avg_resolution_hours']:.1f}h"
-            if metrics["avg_resolution_hours"] is not None
-            else "—"
-        ),
-    )
-
+    _render_stat_row(metrics)
     st.write("")
-    if is_super_admin:
-        status_col, department_col = st.columns(2)
-        with status_col, st.container(border=True):
-            st.markdown('<div class="tr-muted">TICKETS BY STATUS</div>', unsafe_allow_html=True)
-            render_status_pie_chart(metrics["tickets_per_status"], st.session_state.theme_mode)
-        with department_col, st.container(border=True):
-            st.markdown('<div class="tr-muted">TICKETS BY DEPARTMENT</div>', unsafe_allow_html=True)
-            render_department_pie_chart(
-                metrics["tickets_per_department"], st.session_state.theme_mode
-            )
-    else:
-        with st.container(border=True):
-            st.markdown('<div class="tr-muted">TICKETS BY STATUS</div>', unsafe_allow_html=True)
-            render_status_pie_chart(metrics["tickets_per_status"], st.session_state.theme_mode)
+    _render_metric_charts(metrics, is_super_admin)
+
+    by_department = metrics.get("by_department")
+    if is_super_admin and by_department:
+        st.write("")
+        st.markdown('<div class="tr-muted">👥 BY TEAM</div>', unsafe_allow_html=True)
+        team_tabs = st.tabs(list(by_department.keys()))
+        for tab, team_metrics in zip(team_tabs, by_department.values(), strict=True):
+            with tab:
+                _render_stat_row(team_metrics)
+                st.write("")
+                _render_metric_charts(team_metrics, is_super_admin=False)
 
 
 def _render_manual_routing_panel(ticket_id: int, detail: dict) -> None:
@@ -524,7 +543,7 @@ def _render_manual_routing_panel(ticket_id: int, detail: dict) -> None:
 
     with st.container(border=True):
         st.markdown(
-            '<div class="tr-muted">MANUAL ROUTING (FOR COMPARISON)</div>', unsafe_allow_html=True
+            '<div class="tr-muted">⏱️ MANUAL ROUTING (FOR COMPARISON)</div>', unsafe_allow_html=True
         )
         st.caption(
             "Time yourself triaging this ticket the way a support agent would - pick a "
@@ -589,6 +608,9 @@ def _render_admin_ticket_detail(token: str, ticket_id: int) -> None:
     except ApiError as error:
         st.error(error.detail)
         return
+
+    st.markdown(f'<div id="admin-ticket-detail-{ticket_id}"></div>', unsafe_allow_html=True)
+    _scroll_to_anchor(f"admin-ticket-detail-{ticket_id}")
 
     st.divider()
     with st.container(border=True):
@@ -683,7 +705,8 @@ def _render_admin_ticket_detail(token: str, ticket_id: int) -> None:
                 st.write(message["message"])
 
         st.markdown(
-            '<div class="tr-muted" style="margin-top:14px;">TIMELINE</div>', unsafe_allow_html=True
+            '<div class="tr-muted" style="margin-top:14px;">🕒 TIMELINE</div>',
+            unsafe_allow_html=True,
         )
         render_ticket_timeline(detail["activity"])
 

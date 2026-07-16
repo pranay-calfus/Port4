@@ -41,3 +41,41 @@ ROUTE_TICKET_TOOL: dict[str, Any] = {
         },
     },
 }
+
+CHECK_RESOLUTION_TOOL_NAME = "check_resolution"
+
+# Forced tool call backing the resolution-detection classifier (see
+# ticket_router.services.resolution_service) - lets the department bot
+# notice when a customer confirms their issue is fixed and autonomously
+# close the ticket, the same outcome a human admin gets from the
+# accept-solution flow.
+CHECK_RESOLUTION_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": CHECK_RESOLUTION_TOOL_NAME,
+        "description": (
+            "Decide whether the customer's latest message confirms their issue is now "
+            "resolved and the support ticket can be closed."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "resolved": {
+                    "type": "boolean",
+                    "description": (
+                        "True only if the customer's latest message explicitly confirms the "
+                        "issue is fixed/working and agrees (or does not object) to closing the "
+                        "ticket. False for anything else, including silence, a new question, "
+                        "or continued troubleshooting."
+                    ),
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "One sentence citing the specific signal in the message.",
+                },
+            },
+            "required": ["resolved", "reasoning"],
+            "additionalProperties": False,
+        },
+    },
+}

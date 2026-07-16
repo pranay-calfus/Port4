@@ -21,7 +21,8 @@ from backend.models import (
     User,
 )
 from ticket_router.errors import AppError
-from ticket_router.services.agent_service import chat_with_department
+from ticket_router.services.agent_service import chat_with_department, chat_with_general_agent
+from ticket_router.services.resolution_service import check_resolution
 from ticket_router.services.ticket_routing_service import route_ticket
 
 UNASSIGNED_DEPARTMENT = "Unassigned"
@@ -86,6 +87,30 @@ def authenticate(db: Session, email: str, password: str, role: Role) -> User | N
 def _transcript_to_text(history: list[tuple[str, str]]) -> str:
     speaker = {"user": "Customer", "assistant": "AI Assistant"}
     return "\n".join(f"{speaker[role]}: {content}" for role, content in history)
+
+
+def reply_to_chat(history: list[tuple[str, str]], message: str):
+    """Powers the pre-ticket chat endpoint. Classifies the conversation so
+    far - the same route_ticket() used at escalation time - as soon as the
+    customer sends a message, so the reply comes from the right
+    department's skills.md-grounded persona (see chat_with_department) from
+    the first turn, not a generic assistant. No ticket exists yet; this is
+    purely picking who answers. Falls back to the general first-line agent
+    if classification isn't available (e.g. AI temporarily down).
+
+    Returns (reply_text, classification_or_none).
+    """
+    transcript = _transcript_to_text([*history, ("user", message)])
+    try:
+        classification = route_ticket(transcript)
+    except AppError:
+        classification = None
+
+    if classification is not None:
+        reply = chat_with_department(classification.assigned_team, history, message)
+    else:
+        reply = chat_with_general_agent(history, message)
+    return reply, classification
 
 
 def escalate_to_ticket(
@@ -164,6 +189,12 @@ def escalate_to_ticket(
     log_activity(db, ticket, "AI Categorized", detail=activity_detail)
     db.commit()
     db.refresh(ticket)
+
+    # Get the department's persona engaged right away, so the customer
+    # opening the ticket right after creating it sees a live conversation
+    # instead of just their own message sitting unanswered.
+    _department_auto_reply(db, ticket)
+    db.refresh(ticket)
     return ticket
 
 
@@ -208,6 +239,52 @@ def _department_auto_reply(db: Session, ticket: Ticket) -> None:
     )
     log_activity(db, ticket, "AI Replied", detail=f"{ticket.department} agent")
     db.commit()
+    db.refresh(ticket)
+
+    _maybe_auto_close(db, ticket, prior_history, latest_message)
+
+
+def _maybe_auto_close(
+    db: Session, ticket: Ticket, prior_history: list[tuple[str, str]], latest_message: str
+) -> None:
+    """After the bot replies, checks whether the customer's latest message
+    (the one that triggered this reply) just confirmed the issue is
+    resolved - if so, the bot closes the loop itself (RESOLVED, then
+    immediately CLOSED) instead of waiting on a human admin, the same
+    outcome a customer clicking "Accept Solution" produces via
+    accept_solution(). Never re-fires on a ticket that's already
+    resolved/closed.
+    """
+    if ticket.status in (TicketStatus.RESOLVED, TicketStatus.CLOSED):
+        return
+    if not prior_history:
+        # This is the ticket's very first message (e.g. the initial
+        # auto-reply fired right after creation) - nothing has been
+        # discussed yet, so it cannot possibly be a resolution
+        # confirmation. Skip the classifier call entirely.
+        return
+
+    transcript = _transcript_to_text([*prior_history, ("user", latest_message)])
+    result = check_resolution(transcript, latest_message)
+    if not result.resolved:
+        return
+
+    log_activity(db, ticket, "AI Detected Resolution", detail=result.reasoning)
+    change_status(db, ticket, TicketStatus.RESOLVED)
+    change_status(db, ticket, TicketStatus.CLOSED)
+    db.add(
+        TicketMessage(
+            ticket_id=ticket.id,
+            sender_type=SenderType.AI,
+            sender_id=None,
+            message=(
+                "This ticket has been marked Resolved and Closed since you confirmed the "
+                "issue is fixed. Reply anytime if it comes back."
+            ),
+        )
+    )
+    db.commit()
+    db.refresh(ticket)
 
 
 def add_user_message(db: Session, ticket: Ticket, user: User, text: str) -> TicketMessage:
@@ -334,7 +411,16 @@ def admin_can_access(admin: User, ticket: Ticket) -> bool:
 
 
 def list_tickets_for_user(db: Session, user: User) -> list[Ticket]:
-    stmt = select(Ticket).where(Ticket.user_id == user.id).order_by(Ticket.created_at.desc())
+    # Bulk submission can create several tickets within the same wall-clock
+    # millisecond, so created_at alone can tie - id.desc() is a stable
+    # tiebreaker (autoincrement, so it's also always submission order),
+    # otherwise SQL is free to return tied rows in an arbitrary order and
+    # the list appears to "shuffle" between requests.
+    stmt = (
+        select(Ticket)
+        .where(Ticket.user_id == user.id)
+        .order_by(Ticket.created_at.desc(), Ticket.id.desc())
+    )
     return list(db.execute(stmt).scalars().all())
 
 
@@ -359,7 +445,7 @@ def list_tickets_for_admin(
         stmt = stmt.where(Ticket.status == status_filter)
     if assigned_admin_id is not None:
         stmt = stmt.where(Ticket.assigned_admin_id == assigned_admin_id)
-    stmt = stmt.order_by(Ticket.created_at.desc())
+    stmt = stmt.order_by(Ticket.created_at.desc(), Ticket.id.desc())
 
     tickets = list(db.execute(stmt).scalars().all())
     if search:
@@ -374,28 +460,50 @@ def list_tickets_for_admin(
     return tickets
 
 
-def dashboard_metrics(db: Session, admin: User) -> dict:
-    tickets = list_tickets_for_admin(db, admin)
-    open_tickets = [t for t in tickets if t.status != TicketStatus.CLOSED]
+def _tally(tickets: list[Ticket], key) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for ticket in tickets:
+        value = key(ticket)
+        if value is None:
+            continue
+        counts[value] = counts.get(value, 0) + 1
+    return counts
 
+
+def _metrics_for(tickets: list[Ticket]) -> dict:
+    open_tickets = [t for t in tickets if t.status != TicketStatus.CLOSED]
     resolution_hours = [
         (t.resolved_at - t.created_at).total_seconds() / 3600
         for t in tickets
         if t.resolved_at is not None
     ]
-
-    per_department: dict[str, int] = {}
-    per_status: dict[str, int] = {}
-    for ticket in tickets:
-        per_department[ticket.department] = per_department.get(ticket.department, 0) + 1
-        per_status[ticket.status.value] = per_status.get(ticket.status.value, 0) + 1
-
     return {
         "open_tickets": len(open_tickets),
         "total_tickets": len(tickets),
         "avg_resolution_hours": (
             sum(resolution_hours) / len(resolution_hours) if resolution_hours else None
         ),
-        "tickets_per_department": per_department,
-        "tickets_per_status": per_status,
+        "tickets_per_status": _tally(tickets, lambda t: t.status.value),
+        "tickets_per_priority": _tally(tickets, lambda t: t.priority),
+        "tickets_per_emotion": _tally(tickets, lambda t: t.ai_emotion),
     }
+
+
+def dashboard_metrics(db: Session, admin: User) -> dict:
+    """Overall metrics for this admin's scope (their one department, or every
+    department for a super-admin). A super-admin additionally gets
+    `by_department`: the same metric shape computed separately for each
+    department that has at least one ticket, so the dashboard can show a
+    dedicated section per team instead of just one blended aggregate.
+    """
+    tickets = list_tickets_for_admin(db, admin)
+    metrics = _metrics_for(tickets)
+    metrics["tickets_per_department"] = _tally(tickets, lambda t: t.department)
+
+    if admin.department is None:
+        metrics["by_department"] = {
+            department: _metrics_for([t for t in tickets if t.department == department])
+            for department in metrics["tickets_per_department"]
+        }
+
+    return metrics

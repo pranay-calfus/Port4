@@ -17,6 +17,7 @@ _DARK_PALETTE = {
     "PAGE_BG": "#000000",
     "CARD_BG": "rgba(255, 255, 255, 0.03)",
     "CARD_BORDER": "rgba(248, 250, 252, 0.14)",
+    "CARD_SHADOW": "0 10px 30px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.02)",
     "FIELD_BORDER": "rgba(248, 250, 252, 0.1)",
     "HEADING": "#f8fafc",
     "BODY_TEXT": "#e2e8f0",
@@ -78,6 +79,7 @@ _LIGHT_PALETTE = {
     "PAGE_BG": "#f7f8fa",
     "CARD_BG": "rgba(15, 23, 42, 0.025)",
     "CARD_BORDER": "rgba(15, 23, 42, 0.1)",
+    "CARD_SHADOW": "0 10px 30px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04)",
     "FIELD_BORDER": "rgba(15, 23, 42, 0.08)",
     "HEADING": "#0f172a",
     "BODY_TEXT": "#334155",
@@ -156,26 +158,37 @@ header[data-testid="stHeader"] {
 
 section.main > div {
     padding-top: 1.5rem;
-    max-width: 1000px;
+    max-width: 1240px;
 }
 
 /* Card containers (st.container(border=True)) - the one wrapper used
-   throughout the app to give a section a subtle card treatment. */
+   throughout the app to give a section a subtle card treatment. A soft
+   shadow (not just a border) is what actually reads as "designed" rather
+   than "boxes with outlines" - kept faint so it doesn't compete with the
+   chart colors inside. */
 div[data-testid="stVerticalBlockBorderWrapper"] {
     background: __CARD_BG__;
     border: 1px solid __CARD_BORDER__;
     border-radius: 16px;
     backdrop-filter: blur(10px);
+    box-shadow: __CARD_SHADOW__;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 div[data-testid="stVerticalBlockBorderWrapper"] > div {
     border-radius: 16px;
+    padding: 4px;
 }
 
 /* Headings */
 h1, h2, h3 {
     color: __HEADING__ !important;
     font-weight: 700 !important;
+    letter-spacing: -0.01em;
+}
+
+h3 {
+    margin-top: 0.2rem !important;
 }
 
 p, span, label, .stMarkdown {
@@ -186,8 +199,10 @@ p, span, label, .stMarkdown {
     color: __MUTED_TEXT__;
     font-size: 0.78rem;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    font-weight: 600;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+    margin-bottom: 10px;
+    display: block;
 }
 
 .tr-subtitle {
@@ -522,11 +537,19 @@ div[data-testid="stMetric"] {
     background: __CARD_BG__;
     border: 1px solid __FIELD_BORDER__;
     border-radius: 12px;
-    padding: 14px 16px 10px;
+    padding: 16px 18px 12px;
+    box-shadow: __CARD_SHADOW__;
 }
 
 div[data-testid="stMetricLabel"] {
     color: __MUTED_TEXT__;
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+div[data-testid="stMetricValue"] {
+    font-weight: 800;
+    letter-spacing: -0.01em;
 }
 
 /* Stat-tile accents (admin dashboard) - a colored top edge on the Pending/

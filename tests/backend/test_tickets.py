@@ -1,6 +1,16 @@
 from backend.services import ticket_service
 from ticket_router.errors import AIUnavailableError
-from ticket_router.models import TicketRouteResult
+from ticket_router.models import ResolutionCheck, TicketRouteResult
+
+
+def _stub_resolution(monkeypatch, resolved, reasoning="test"):
+    monkeypatch.setattr(
+        ticket_service,
+        "check_resolution",
+        lambda transcript, latest_customer_message: ResolutionCheck(
+            resolved=resolved, reasoning=reasoning
+        ),
+    )
 
 
 def _fake_route_ticket_success(monkeypatch):
@@ -14,6 +24,13 @@ def _fake_route_ticket_success(monkeypatch):
     )
     result.model_used = "fake-model"
     monkeypatch.setattr(ticket_service, "route_ticket", lambda message: result)
+    # escalate_to_ticket() now triggers the department's initial auto-reply
+    # right away, so any successful escalation reaches chat_with_department -
+    # default it to a canned reply so tests stay fast/deterministic unless a
+    # test overrides it below with its own monkeypatch.
+    monkeypatch.setattr(
+        ticket_service, "chat_with_department", lambda team, history, message: "Noted."
+    )
 
 
 def _fake_route_ticket_failure(monkeypatch):
@@ -50,8 +67,14 @@ def test_escalate_creates_ticket_with_ai_categorization(client, monkeypatch):
     assert ticket["ai_category"] == "Billing"
     assert ticket["ai_emotion"] == "Frustrated"
     assert ticket["ai_processing_ms"] is not None and ticket["ai_processing_ms"] >= 0
-    assert [a["event_type"] for a in ticket["activity"]] == ["Ticket Created", "AI Categorized"]
-    assert len(ticket["messages"]) == 1
+    assert [a["event_type"] for a in ticket["activity"]] == [
+        "Ticket Created",
+        "AI Categorized",
+        "AI Replied",
+    ]
+    assert len(ticket["messages"]) == 2  # escalation transcript + the bot's initial reply
+    assert ticket["messages"][-1]["sender_type"] == "AI"
+    assert ticket["messages"][-1]["message"] == "Noted."
 
 
 def test_escalate_still_creates_ticket_when_ai_fails(client, monkeypatch):
@@ -149,6 +172,7 @@ def test_reply_to_resolved_ticket_reopens_to_in_progress(client, monkeypatch, db
     monkeypatch.setattr(
         ticket_service, "chat_with_department", lambda team, history, message: "Noted."
     )
+    _stub_resolution(monkeypatch, resolved=False)
     headers = _register_and_login(client)
     _escalate(client, headers)
 
@@ -173,6 +197,7 @@ def test_customer_reply_gets_department_agent_auto_reply(client, monkeypatch):
         "chat_with_department",
         lambda team, history, message: f"[{team} agent] Thanks, looking into: {message}",
     )
+    _stub_resolution(monkeypatch, resolved=False)
     headers = _register_and_login(client)
     _escalate(client, headers)
 
@@ -186,6 +211,51 @@ def test_customer_reply_gets_department_agent_auto_reply(client, monkeypatch):
     assert "AI Replied" in [a["event_type"] for a in detail["activity"]]
 
 
+def test_bot_auto_closes_ticket_when_customer_confirms_resolution(client, monkeypatch):
+    _fake_route_ticket_success(monkeypatch)  # assigns "Billing Team"
+    monkeypatch.setattr(
+        ticket_service,
+        "chat_with_department",
+        lambda team, history, message: "Glad to hear it!",
+    )
+    _stub_resolution(monkeypatch, resolved=True, reasoning="Customer said 'that fixed it, thanks!'")
+    headers = _register_and_login(client)
+    _escalate(client, headers)
+
+    response = client.post(
+        "/tickets/1/messages", headers=headers, json={"message": "That fixed it, thanks!"}
+    )
+    assert response.status_code == 201
+
+    detail = client.get("/tickets/1", headers=headers).json()
+    assert detail["status"] == "CLOSED"
+    event_types = [a["event_type"] for a in detail["activity"]]
+    assert "AI Detected Resolution" in event_types
+    # OPEN -> RESOLVED and RESOLVED -> CLOSED, each its own "Status Changed" entry
+    assert event_types.count("Status Changed") == 2
+    messages = detail["messages"]
+    assert messages[-2]["message"] == "Glad to hear it!"
+    assert messages[-1]["sender_type"] == "AI"
+    assert "resolved" in messages[-1]["message"].lower()
+    assert "closed" in messages[-1]["message"].lower()
+
+
+def test_bot_does_not_auto_close_when_customer_has_not_confirmed_resolution(client, monkeypatch):
+    _fake_route_ticket_success(monkeypatch)
+    monkeypatch.setattr(
+        ticket_service, "chat_with_department", lambda team, history, message: "Still looking."
+    )
+    _stub_resolution(monkeypatch, resolved=False, reasoning="No confirmation in the message")
+    headers = _register_and_login(client)
+    _escalate(client, headers)
+
+    client.post("/tickets/1/messages", headers=headers, json={"message": "Any update?"})
+
+    detail = client.get("/tickets/1", headers=headers).json()
+    assert detail["status"] == "OPEN"
+    assert "AI Detected Resolution" not in [a["event_type"] for a in detail["activity"]]
+
+
 def test_department_agent_stops_replying_once_admin_takes_over(client, monkeypatch, db_session):
     _fake_route_ticket_success(monkeypatch)
     calls = []
@@ -195,7 +265,7 @@ def test_department_agent_stops_replying_once_admin_takes_over(client, monkeypat
         lambda team, history, message: calls.append(message) or "auto-reply",
     )
     headers = _register_and_login(client)
-    _escalate(client, headers)
+    _escalate(client, headers)  # triggers the ticket's own initial auto-reply
 
     from backend.models import Role, Ticket
 
@@ -205,8 +275,9 @@ def test_department_agent_stops_replying_once_admin_takes_over(client, monkeypat
     )
     ticket_service.add_admin_message(db_session, ticket, admin, "A human is now on this.")
 
+    calls_before_admin_reply = len(calls)
     client.post("/tickets/1/messages", headers=headers, json={"message": "Hello again?"})
-    assert calls == []  # the department agent never got called after an admin reply
+    assert len(calls) == calls_before_admin_reply  # no new call after an admin reply
 
 
 def test_unassigned_department_never_gets_an_agent_reply(client, monkeypatch):

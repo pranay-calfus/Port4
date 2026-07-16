@@ -78,17 +78,33 @@ def _run_chat(
     return response.content
 
 
+# Appended to every department persona's system prompt so the bot
+# proactively checks in on resolution once it believes the issue is
+# handled - this is what gives the customer a natural moment to confirm,
+# which backend.services.ticket_service's post-reply resolution check (see
+# ticket_router.services.resolution_service.check_resolution) then detects
+# to auto-close the ticket.
+_RESOLUTION_CHECK_NUDGE = (
+    "\n\n# CLOSING THE LOOP\n"
+    "Once you believe you have fully addressed the customer's issue, explicitly ask them to "
+    "confirm whether it's resolved and whether this ticket can be closed. Do not ask on every "
+    "turn - only once, after you think the issue is actually handled."
+)
+
+
 def chat_with_department(
     team: AssignedTeam,
     history: list[tuple[str, str]],
     message: str,
 ) -> str:
     """Sends one message to the conversational agent for `team`, grounded in
-    that team's skills.md persona, plus the prior turns in `history`
-    (list of (role, content) tuples where role is "user" or "assistant").
-    Returns the agent's reply text.
+    that team's skills.md persona (plus a shared nudge to check in on
+    resolution, see _RESOLUTION_CHECK_NUDGE), plus the prior turns in
+    `history` (list of (role, content) tuples where role is "user" or
+    "assistant"). Returns the agent's reply text.
     """
-    return _run_chat(load_skill_prompt(team), history, message, log_context={"team": team})
+    system_prompt = load_skill_prompt(team) + _RESOLUTION_CHECK_NUDGE
+    return _run_chat(system_prompt, history, message, log_context={"team": team})
 
 
 def chat_with_general_agent(history: list[tuple[str, str]], message: str) -> str:
