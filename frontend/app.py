@@ -21,6 +21,7 @@ sys.path.insert(0, str(_THIS_DIR))  # for api_client (sibling module)
 sys.path.insert(0, str(_THIS_DIR.parent))  # for ticket_router (repo root package)
 
 import api_client as api
+import pandas as pd
 import streamlit as st
 from api_client import TICKET_STATUSES, ApiError
 
@@ -52,6 +53,7 @@ for key, default in {
     "identity": None,
     "selected_ticket_id": None,
     "theme_mode": "dark",
+    "pending_delete": None,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -473,10 +475,10 @@ def _render_customer_app() -> None:
 
 def _render_stat_row(metrics: dict) -> None:
     col1, col2, col3 = st.columns(3)
-    col1.metric("📥 Open Tickets", metrics["open_tickets"])
-    col2.metric("🗂️ Total Tickets", metrics["total_tickets"])
+    col1.metric("Open Tickets", metrics["open_tickets"])
+    col2.metric("Total Tickets", metrics["total_tickets"])
     col3.metric(
-        "⏱️ Avg Resolution Time",
+        "Avg Resolution Time",
         (
             f"{metrics['avg_resolution_hours']:.1f}h"
             if metrics["avg_resolution_hours"] is not None
@@ -485,50 +487,39 @@ def _render_stat_row(metrics: dict) -> None:
     )
 
 
-def _render_metric_charts(metrics: dict, is_super_admin: bool) -> None:
+def _render_metric_charts(metrics: dict, show_department: bool) -> None:
+    """Lays out each available chart in a 2-per-row grid (rather than a
+    fixed 2x2 with a dead cell when only 3 charts apply - e.g. a single
+    team's own breakdown never has a department split) so the grid stays
+    tight regardless of how many charts are shown.
+    """
     mode = st.session_state.theme_mode
 
-    row1_col1, row1_col2 = st.columns(2)
-    with row1_col1, st.container(border=True):
-        st.markdown('<div class="tr-muted">📊 TICKETS BY STATUS</div>', unsafe_allow_html=True)
-        render_status_bar_chart(metrics["tickets_per_status"], mode)
-    with row1_col2, st.container(border=True):
-        st.markdown('<div class="tr-muted">🎯 TICKETS BY PRIORITY</div>', unsafe_allow_html=True)
-        render_priority_pie_chart(metrics["tickets_per_priority"], mode)
-
-    row2_col1, row2_col2 = st.columns(2)
-    with row2_col1, st.container(border=True):
-        st.markdown('<div class="tr-muted">💬 TICKETS BY EMOTION</div>', unsafe_allow_html=True)
-        render_emotion_bar_chart(metrics["tickets_per_emotion"], mode)
-    if is_super_admin:
-        with row2_col2, st.container(border=True):
-            st.markdown(
-                '<div class="tr-muted">🏢 TICKETS BY DEPARTMENT</div>', unsafe_allow_html=True
+    charts = [
+        ("Tickets by Status", lambda: render_status_bar_chart(metrics["tickets_per_status"], mode)),
+        (
+            "Tickets by Priority",
+            lambda: render_priority_pie_chart(metrics["tickets_per_priority"], mode),
+        ),
+        (
+            "Tickets by Emotion",
+            lambda: render_emotion_bar_chart(metrics["tickets_per_emotion"], mode),
+        ),
+    ]
+    if show_department:
+        charts.append(
+            (
+                "Tickets by Team",
+                lambda: render_department_bar_chart(metrics["tickets_per_department"], mode),
             )
-            render_department_bar_chart(metrics["tickets_per_department"], mode)
+        )
 
-
-def _render_metrics(token: str, is_super_admin: bool) -> None:
-    try:
-        metrics = api.admin_metrics(token)
-    except ApiError as error:
-        st.error(error.detail)
-        return
-
-    _render_stat_row(metrics)
-    st.write("")
-    _render_metric_charts(metrics, is_super_admin)
-
-    by_department = metrics.get("by_department")
-    if is_super_admin and by_department:
-        st.write("")
-        st.markdown('<div class="tr-muted">👥 BY TEAM</div>', unsafe_allow_html=True)
-        team_tabs = st.tabs(list(by_department.keys()))
-        for tab, team_metrics in zip(team_tabs, by_department.values(), strict=True):
-            with tab:
-                _render_stat_row(team_metrics)
-                st.write("")
-                _render_metric_charts(team_metrics, is_super_admin=False)
+    for row_start in range(0, len(charts), 2):
+        cols = st.columns(2)
+        for col, (label, render_fn) in zip(cols, charts[row_start : row_start + 2], strict=False):
+            with col, st.container(border=True):
+                st.markdown(f'<div class="tr-muted">{label}</div>', unsafe_allow_html=True)
+                render_fn()
 
 
 def _render_manual_routing_panel(ticket_id: int, detail: dict) -> None:
@@ -602,6 +593,34 @@ def _render_manual_routing_panel(ticket_id: int, detail: dict) -> None:
                 )
 
 
+def _clear_pending_delete() -> None:
+    st.session_state.pending_delete = None
+
+
+@st.dialog("Delete ticket", on_dismiss=_clear_pending_delete)
+def _render_delete_confirmation(token: str, ticket_id: int, ticket_number: str) -> None:
+    st.write(
+        f"Permanently delete **{ticket_number}**? This removes its full message history "
+        "and activity log too. This cannot be undone."
+    )
+    cancel_col, confirm_col = st.columns(2)
+    if cancel_col.button("Cancel", key=f"cancel_delete_{ticket_id}", width="stretch"):
+        _clear_pending_delete()
+        st.rerun()
+    if confirm_col.button(
+        "Delete Permanently", key=f"confirm_delete_{ticket_id}", type="primary", width="stretch"
+    ):
+        try:
+            api.admin_delete_ticket(token, ticket_id)
+        except ApiError as error:
+            st.error(error.detail)
+        else:
+            _clear_pending_delete()
+            if st.session_state.selected_ticket_id == ticket_id:
+                st.session_state.selected_ticket_id = None
+            st.rerun()
+
+
 def _render_admin_ticket_detail(token: str, ticket_id: int) -> None:
     try:
         detail = api.admin_get_ticket(token, ticket_id)
@@ -614,7 +633,16 @@ def _render_admin_ticket_detail(token: str, ticket_id: int) -> None:
 
     st.divider()
     with st.container(border=True):
-        st.markdown(f"### {detail['ticket_number']} — {detail['title']}")
+        title_col, delete_col = st.columns([5, 1])
+        with title_col:
+            st.markdown(f"### {detail['ticket_number']} — {detail['title']}")
+        with delete_col:
+            if st.button("Delete", key=f"delete_ticket_{ticket_id}", width="stretch"):
+                st.session_state.pending_delete = {
+                    "id": ticket_id,
+                    "number": detail["ticket_number"],
+                }
+                st.rerun()
         st.write(
             f"Requester: **{detail['user']['name']}** ({detail['user']['email']}) · "
             f"Status: **{detail['status']}** · Priority: **{detail['priority']}** · "
@@ -705,7 +733,7 @@ def _render_admin_ticket_detail(token: str, ticket_id: int) -> None:
                 st.write(message["message"])
 
         st.markdown(
-            '<div class="tr-muted" style="margin-top:14px;">🕒 TIMELINE</div>',
+            '<div class="tr-muted" style="margin-top:14px;">TIMELINE</div>',
             unsafe_allow_html=True,
         )
         render_ticket_timeline(detail["activity"])
@@ -724,22 +752,21 @@ def _render_admin_ticket_detail(token: str, ticket_id: int) -> None:
             st.caption("This ticket is closed.")
 
 
-def _render_admin_queue(token: str) -> None:
+def _render_admin_queue(token: str, department_filter: str | None) -> None:
     with st.container(border=True):
-        filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
-        department = filter_col1.selectbox(
-            "Department", ["All", *DEPARTMENTS], key="filter_department"
-        )
-        priority = filter_col2.selectbox("Priority", ["All", *PRIORITIES], key="filter_priority")
-        status_filter = filter_col3.selectbox(
+        filter_col1, filter_col2, filter_col3 = st.columns(3)
+        priority = filter_col1.selectbox("Priority", ["All", *PRIORITIES], key="filter_priority")
+        status_filter = filter_col2.selectbox(
             "Status", ["All", *TICKET_STATUSES], key="filter_status"
         )
-        search = filter_col4.text_input("Search", key="filter_search")
+        search = filter_col3.text_input(
+            "Search", key="filter_search", placeholder="Ticket #, title, or description"
+        )
 
         try:
             tickets = api.admin_list_tickets(
                 token,
-                department=None if department == "All" else department,
+                department=department_filter,
                 priority=None if priority == "All" else priority,
                 status_filter=None if status_filter == "All" else status_filter,
                 search=search or None,
@@ -748,14 +775,52 @@ def _render_admin_queue(token: str) -> None:
             st.error(error.detail)
             return
 
-        st.caption(f"{len(tickets)} ticket(s)")
-        for ticket in tickets:
-            label = (
-                f"{ticket['ticket_number']} · {ticket['title']} · {ticket['department']} · "
-                f"{ticket['priority']} · {ticket['status']}"
+        st.caption(f"{len(tickets)} ticket{'s' if len(tickets) != 1 else ''}")
+        if not tickets:
+            st.caption("No tickets match this filter.")
+        else:
+            # Closure over `tickets` (this run's fetch) rather than storing
+            # IDs in the dataframe itself - Streamlit invokes this callback
+            # with its captured closure on the very next rerun, before the
+            # rest of the script runs, so `tickets[row]` is still the
+            # correct ticket for that click.
+            def _on_row_action() -> None:
+                click = st.session_state.get("admin_ticket_row_action")
+                if not click:
+                    return
+                ticket = tickets[click["row"]]
+                if click["label"] == "Delete":
+                    st.session_state.pending_delete = {
+                        "id": ticket["id"],
+                        "number": ticket["ticket_number"],
+                    }
+                else:
+                    st.session_state.selected_ticket_id = ticket["id"]
+
+            table = pd.DataFrame(
+                {
+                    "Ticket": [t["ticket_number"] for t in tickets],
+                    "Title": [t["title"] for t in tickets],
+                    "Team": [t["department"] for t in tickets],
+                    "Priority": [t["priority"] for t in tickets],
+                    "Status": [t["status"].replace("_", " ").title() for t in tickets],
+                    "Created": pd.to_datetime([t["created_at"] for t in tickets]),
+                    "Actions": [["Open", "Delete"] for _ in tickets],
+                }
             )
-            if st.button(label, key=f"open_admin_ticket_{ticket['id']}"):
-                st.session_state.selected_ticket_id = ticket["id"]
+            st.dataframe(
+                table,
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "Created": st.column_config.DatetimeColumn(
+                        "Created", format="MMM D, YYYY · h:mm A"
+                    ),
+                    "Actions": st.column_config.ButtonColumn(
+                        "", on_click=_on_row_action, key="admin_ticket_row_action", width="small"
+                    ),
+                },
+            )
 
     if st.session_state.selected_ticket_id is not None:
         _render_admin_ticket_detail(token, st.session_state.selected_ticket_id)
@@ -765,9 +830,42 @@ def _render_admin_app() -> None:
     token = st.session_state.token
     is_super_admin = st.session_state.identity["department"] is None
 
-    _render_metrics(token, is_super_admin)
-    st.divider()
-    _render_admin_queue(token)
+    pending = st.session_state.pending_delete
+    if pending:
+        _render_delete_confirmation(token, pending["id"], pending["number"])
+
+    try:
+        metrics = api.admin_metrics(token)
+    except ApiError as error:
+        st.error(error.detail)
+        return
+
+    by_department = metrics.get("by_department") or {}
+    teams = sorted(by_department)
+
+    dashboard_tab, tickets_tab = st.tabs(["Dashboard", "Tickets"])
+
+    with dashboard_tab:
+        selected_team = None
+        if is_super_admin and teams:
+            team_col, _spacer = st.columns([2, 5])
+            choice = team_col.selectbox("Team", ["All Teams", *teams], key="admin_team_filter")
+            selected_team = None if choice == "All Teams" else choice
+
+        active_metrics = by_department[selected_team] if selected_team else metrics
+        _render_stat_row(active_metrics)
+        st.write("")
+        _render_metric_charts(active_metrics, show_department=is_super_admin and not selected_team)
+
+    with tickets_tab:
+        team_filter = st.session_state.get("admin_team_filter")
+        team_filter = team_filter if team_filter and team_filter != "All Teams" else None
+        if team_filter:
+            st.caption(
+                f"Showing **{team_filter}** tickets — change the team on the Dashboard tab "
+                "to view another team."
+            )
+        _render_admin_queue(token, department_filter=team_filter)
 
 
 # --- Entry point ----------------------------------------------------------

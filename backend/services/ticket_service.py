@@ -387,6 +387,16 @@ def accept_solution(db: Session, ticket: Ticket) -> Ticket:
     return ticket
 
 
+def delete_ticket(db: Session, ticket: Ticket) -> None:
+    """Permanently removes a ticket and its message/activity history
+    (cascade="all, delete-orphan" on Ticket.messages/activity handles the
+    children). Irreversible - the router requires a fresh confirmation from
+    the admin before calling this.
+    """
+    db.delete(ticket)
+    db.commit()
+
+
 def reopen_ticket(db: Session, ticket: Ticket) -> Ticket:
     if ticket.status != TicketStatus.RESOLVED:
         raise ValueError(

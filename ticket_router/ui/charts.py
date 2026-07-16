@@ -21,6 +21,8 @@ Every chart still ships a legend/axis labels and a plain-text count/
 percentage line, so identity never depends on color alone.
 """
 
+import math
+
 import altair as alt
 import pandas as pd
 import streamlit as st
@@ -134,6 +136,32 @@ def _ink_and_surface(mode: str) -> tuple[str, str]:
     return ink, surface
 
 
+def _integer_tick_values(max_value: int, target_ticks: int = 6) -> list[int]:
+    """Explicit whole-number tick positions for a ticket-count axis.
+
+    Vega-Lite's automatic tick step (even with tickMinStep=1 set) still
+    picks fractional steps like 0.5 for small domains (e.g. max=1 renders
+    ticks 0, 0.5, 1 - which then round to the duplicate-looking "0, 1, 1"
+    once format="d" forces integer display). Computing the tick values
+    ourselves sidesteps that heuristic entirely.
+    """
+    if max_value <= 0:
+        return [0]
+    if max_value <= target_ticks:
+        return list(range(0, max_value + 1))
+
+    raw_step = max_value / target_ticks
+    magnitude = 10 ** math.floor(math.log10(raw_step))
+    step = magnitude
+    for multiple in (1, 2, 5, 10):
+        step = multiple * magnitude
+        if step >= raw_step:
+            break
+    step = int(step)
+    last_tick = (max_value // step + 1) * step
+    return list(range(0, last_tick + 1, step))
+
+
 def _render_pie_chart(
     counts: dict[str, int],
     order: list[str],
@@ -204,6 +232,7 @@ def _render_bar_chart(
     display_domain = [_pretty_label(name) for name in domain]
     color_range = [_color_for(name, hue_map, mode) for name in domain]
     ink, surface = _ink_and_surface(mode)
+    tick_values = _integer_tick_values(max(count for _, count in rows))
 
     chart = (
         alt.Chart(df)
@@ -220,7 +249,16 @@ def _render_bar_chart(
                 scale=alt.Scale(paddingInner=0.35, paddingOuter=0.2),
                 axis=alt.Axis(labelColor=ink, labelLimit=170, labelPadding=8, labelFontSize=12),
             ),
-            x=alt.X("count:Q", title=None, axis=alt.Axis(labelColor=ink, grid=False)),
+            x=alt.X(
+                "count:Q",
+                title=None,
+                # Ticket counts are always whole numbers - explicit tick
+                # `values` instead of relying on Vega-Lite's automatic step
+                # (even tickMinStep=1 still picked 0.5 steps for small
+                # domains, which then rounded to duplicate-looking labels
+                # like "0, 1, 1" once format="d" forced integer display).
+                axis=alt.Axis(labelColor=ink, grid=False, values=tick_values, format="d"),
+            ),
             color=alt.Color(
                 "display_label:N",
                 scale=alt.Scale(domain=display_domain, range=color_range),

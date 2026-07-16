@@ -116,6 +116,14 @@ def reply_to_ticket(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
 
+@router.delete("/tickets/{ticket_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_ticket(
+    ticket_id: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)
+):
+    ticket = _get_visible_ticket(db, ticket_id, admin)
+    ticket_service.delete_ticket(db, ticket)
+
+
 @router.get("/metrics")
 def metrics(admin: User = Depends(require_admin), db: Session = Depends(get_db)) -> dict:
     return ticket_service.dashboard_metrics(db, admin)

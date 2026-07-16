@@ -227,6 +227,33 @@ def test_admin_still_sees_status_and_full_timeline_after_ticket_is_closed(
     assert len(detail["messages"]) == 2  # escalation transcript + the bot's initial reply
 
 
+def test_admin_can_delete_ticket(client, monkeypatch, db_session):
+    ticket = _escalate_as(
+        client, monkeypatch, _fake_result("Billing", "Billing Team"), "user@example.com"
+    )
+    admin = _admin_login(client, db_session, department="Billing Team")
+
+    response = client.delete(f"/admin/tickets/{ticket['id']}", headers=admin)
+    assert response.status_code == 204
+
+    assert client.get(f"/admin/tickets/{ticket['id']}", headers=admin).status_code == 404
+    assert client.get("/admin/tickets", headers=admin).json() == []
+
+
+def test_department_scoped_admin_cannot_delete_other_departments_ticket(
+    client, monkeypatch, db_session
+):
+    ticket = _escalate_as(
+        client, monkeypatch, _fake_result("Bug Report", "Engineering"), "eng-user@example.com"
+    )
+    billing_admin = _admin_login(
+        client, db_session, email="billing-admin@example.com", department="Billing Team"
+    )
+
+    response = client.delete(f"/admin/tickets/{ticket['id']}", headers=billing_admin)
+    assert response.status_code == 404
+
+
 def test_super_admin_metrics_include_per_department_breakdown(client, monkeypatch, db_session):
     _escalate_as(client, monkeypatch, _fake_result("Billing", "Billing Team"), "user1@example.com")
     _escalate_as(

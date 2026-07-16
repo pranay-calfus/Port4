@@ -160,6 +160,10 @@ def admin_reassign(
     return _request("PATCH", f"/admin/tickets/{ticket_id}/reassign", token=token, json=payload)
 
 
+def admin_delete_ticket(token: str, ticket_id: int) -> None:
+    return _request("DELETE", f"/admin/tickets/{ticket_id}", token=token)
+
+
 def admin_reply(token: str, ticket_id: int, message: str) -> dict:
     return _request(
         "POST", f"/admin/tickets/{ticket_id}/message", token=token, json={"message": message}
