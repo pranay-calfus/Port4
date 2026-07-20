@@ -1,0 +1,108 @@
+# Demo tickets — 20 samples covering all 11 categories and all 5 emotions.
+# Each block below is one ticket message (paste the message text into a
+# single "Route All Tickets" box in the bulk-create UI, or feed the
+# messages array straight to POST /tickets/bulk). The header comment
+# above each message is the expected classification, for eyeballing
+# results after routing — it is not part of the ticket text itself.
+
+# 1) Category: Billing | Emotion: Frustrated
+I've been charged twice for my subscription this month — two identical
+charges of $79.99 hit my card on the same day. I've emailed twice already
+and haven't gotten a straight answer. Can someone actually fix this
+instead of just apologizing?
+
+# 2) Category: Billing | Emotion: Neutral
+Could you clarify why my July invoice shows a $15 "platform fee" that
+wasn't on last month's bill? Just want to understand the breakdown
+before I approve payment on my end.
+
+# 3) Category: Technical Support | Emotion: Worried
+The dashboard has been throwing a 500 error every time I try to generate
+our quarterly report, and I need to present these numbers to the board
+tomorrow morning. I'm not sure what's causing it or if my data is even
+safe.
+
+# 4) Category: Technical Support | Emotion: Angry
+This is the THIRD time this month the app has gone down during business
+hours with zero warning. We lost two client calls because of it. I need
+someone to explain why this keeps happening and what you're actually
+doing about it.
+
+# 5) Category: Account Access | Emotion: Worried
+I can't log into my account since this morning — it just says "invalid
+credentials" even though I haven't changed my password. I have sensitive
+client files in there and I'm worried someone else might have gotten in.
+
+# 6) Category: Account Access | Emotion: Frustrated
+I've reset my two-factor authentication three separate times today and
+I'm still getting locked out after the code doesn't go through. This is
+eating up my entire afternoon and I still can't get into my account.
+
+# 7) Category: Bug Report | Emotion: Neutral
+Just noticed the export button on the analytics page doesn't download a
+file in Firefox, though it works fine in Chrome. Not urgent, just
+flagging it in case it's useful for your bug tracker.
+
+# 8) Category: Bug Report | Emotion: Disappointed
+After the update last week, the recurring task feature stopped working
+the way it used to — tasks I've relied on for months just silently
+stopped repeating. I was really counting on this working reliably.
+
+# 9) Category: Feature Request | Emotion: Neutral
+Would it be possible to add a dark mode option to the dashboard? A lot
+of our team works late and the bright white background is pretty hard
+on the eyes.
+
+# 10) Category: Feature Request | Emotion: Disappointed
+I noticed a competitor's tool now offers bulk CSV import, something I've
+been asking about for almost a year. It's disappointing that such a
+commonly requested feature still isn't on your roadmap.
+
+# 11) Category: Refund | Emotion: Angry
+I requested a refund for order #48213 two weeks ago and it was FLAT OUT
+DENIED with no real explanation. This is completely unacceptable and if
+it isn't resolved I'm disputing the charge with my bank.
+
+# 12) Category: Refund | Emotion: Worried
+My refund for the cancelled order was supposed to be processed 10 days
+ago and I still don't see it in my account. I was counting on that money
+for rent this week and I'm getting anxious about where it is.
+
+# 13) Category: Shipping | Emotion: Frustrated
+My order has now been "delayed" three separate times and the tracking
+page hasn't updated in six days. I keep getting the same copy-paste
+apology and no actual timeline.
+
+# 14) Category: Shipping | Emotion: Disappointed
+The package finally arrived today but the item inside was dented and
+the box looked like it had been dropped repeatedly. I was really looking
+forward to this and now I have to deal with a return.
+
+# 15) Category: Sales | Emotion: Neutral
+Can you send over pricing details for the enterprise plan, including
+seat limits and whether there's a discount for annual billing? Trying
+to compare options before our team meeting.
+
+# 16) Category: Sales | Emotion: Worried
+Before we sign the annual contract, I want to make sure I understand the
+auto-renewal terms and cancellation window — I don't want us locked into
+something we can't get out of if it doesn't work out.
+
+# 17) Category: Security | Emotion: Angry
+I just got a notification that my password was changed and I did NOT do
+that. Someone is in my account right now and I need this locked down
+immediately — this is a serious security failure on your end.
+
+# 18) Category: Security | Emotion: Worried
+I received an email that looks like it's from your company asking me to
+"verify my account" through a link that seems off. I haven't clicked it
+but I'm worried it's a phishing attempt targeting your customers.
+
+# 19) Category: General Inquiry | Emotion: Neutral
+What are your customer support hours, and is phone support available on
+weekends? Just trying to plan around when I can reach someone.
+
+# 20) Category: Other | Emotion: Disappointed
+I wanted to give feedback that the overall onboarding experience felt
+disjointed compared to what I expected from your marketing. Not a
+specific bug or request, just wanted someone to know.

@@ -7,9 +7,9 @@ load_dotenv()
 
 # Anchored to the repo root (not the process's current working directory) -
 # same reasoning as SKILLS_DIR elsewhere in this codebase. A cwd-relative
-# path would resolve to a different file depending on where `streamlit run`
-# (or an IDE's runner) happens to be launched from, silently pointing
-# app.py and the admin dashboard at two different, mostly empty databases.
+# path would resolve to a different file depending on where `uvicorn`
+# (or backend.create_admin, or an IDE's runner) happens to be launched
+# from, silently pointing them at two different, mostly empty databases.
 _DEFAULT_DATABASE_URL = "sqlite:///" + str(Path(__file__).resolve().parent.parent / "port4.db")
 
 
@@ -45,6 +45,15 @@ class Config:
     JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "insecure-dev-secret-change-me-32bytes+")
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))
+
+    # Comma-separated list of origins allowed to call this API (see
+    # backend/main.py's CORSMiddleware). Defaults to the React frontend's
+    # Vite dev server origin.
+    CORS_ORIGINS: list[str] = [
+        origin.strip()
+        for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+        if origin.strip()
+    ]
 
 
 config = Config()

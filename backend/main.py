@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from backend.db import init_db
 from backend.routers import admin, auth, chat, tickets
+from ticket_router.config import config
 from ticket_router.errors import AppError
 
 
@@ -17,12 +18,11 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
 
 app = FastAPI(title="Port4 Ticket API", version="1.0.0", lifespan=lifespan)
 
-# The Streamlit frontend (frontend/app.py) runs as a separate local process
-# on its own port and calls this API over HTTP. Tighten this to the real
-# origin in production.
+# The React frontend (frontend/) runs as a separate process on its own port
+# and calls this API over HTTP. Origins are configured via CORS_ORIGINS.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=config.CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )

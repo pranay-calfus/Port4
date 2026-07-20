@@ -20,13 +20,13 @@ Priority = Literal["High", "Medium", "Low"]
 
 Emotion = Literal["Neutral", "Worried", "Frustrated", "Angry", "Disappointed"]
 
-# One emoji per emotion, for compact display next to the text label (see
-# ticket_router/ui/components.py: render_ticket_ai_card).
+# One emoji per emotion, for compact display next to the text label in the
+# frontend's ticket AI card.
 EMOTION_EMOJI: dict[str, str] = {
-    "Neutral": "😐",
-    "Worried": "😟",
+    "Neutral": "🫥",
+    "Worried": "😰",
     "Frustrated": "😤",
-    "Angry": "😠",
+    "Angry": "😡",
     "Disappointed": "😞",
 }
 

@@ -40,7 +40,7 @@ Port4 is a customer support ticketing app. Instead of a person reading every inc
 
 ## Getting Started
 
-Requires Python 3.11+.
+Requires Python 3.11+ and Node.js 20+.
 
 ```bash
 git clone <this-repo>
@@ -49,6 +49,7 @@ python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
 cp .env.example .env
+cd frontend && npm install && cd ..
 ```
 
 Open `.env` and set:
@@ -62,10 +63,10 @@ Then, in two terminals:
 uvicorn backend.main:app --reload --port 8000
 
 # Frontend
-streamlit run frontend/app.py --server.port 8501
+cd frontend && npm run dev
 ```
 
-Open `http://localhost:8501` - it's a single page with a Customer tab (register/login) and an Admin tab (login only). Create the first admin account from the command line:
+Open `http://localhost:5173` - it's a single page with a Customer tab (register/login) and an Admin tab (login only). Create the first admin account from the command line:
 
 ```bash
 python -m backend.create_admin --name "Ops Admin" --email admin@example.com --password <a-real-password>
@@ -76,7 +77,7 @@ Without an OpenAI key, everything still runs - registration, login, browsing tic
 ## Tech Stack
 
 - **Backend**: FastAPI + SQLite (a one-line change to switch to Postgres later)
-- **Frontend**: Streamlit - one app, one port, both customer and admin experiences
+- **Frontend**: React + TypeScript (Vite), a single-page app calling the backend's JSON API
 - **AI**: OpenAI models via LangChain, with automatic fallback to a backup model if the first one is unavailable
 - **Auth**: JWT sessions, passwords hashed with bcrypt
 

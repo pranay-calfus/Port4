@@ -15,10 +15,6 @@ ignore = ["E501"]
 # defaults - the opposite of what B008 normally flags.
 "backend/routers/*.py" = ["B008"]
 "backend/auth.py" = ["B008"]
-# The Streamlit entry point inserts its own directory onto sys.path before
-# importing the sibling api_client module - imports can't be at the literal
-# top of the file in that case.
-"frontend/app.py" = ["E402"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
