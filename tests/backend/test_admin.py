@@ -174,7 +174,7 @@ def test_admin_assign_rejects_admin_from_a_different_department(client, monkeypa
     response = client.patch(
         f"/admin/tickets/{ticket['id']}/assign",
         headers=billing_admin,
-        json={"admin_id": eng_admin_user.id},
+        json={"admin_id": eng_admin_user["id"]},
     )
     assert response.status_code == 400
 
@@ -203,10 +203,10 @@ def test_admin_still_sees_status_and_full_timeline_after_ticket_is_closed(
     )
     admin = _admin_login(client, db_session, department="Billing Team")
 
-    from backend.models import Ticket, TicketStatus
+    from backend.models import TicketStatus
 
-    db_ticket = db_session.get(Ticket, ticket["id"])
-    ticket_service.change_status(db_session, db_ticket, TicketStatus.RESOLVED)
+    db_ticket = ticket_service.get_ticket(db_session, ticket["id"])
+    db_ticket = ticket_service.change_status(db_session, db_ticket, TicketStatus.RESOLVED)
     ticket_service.change_status(db_session, db_ticket, TicketStatus.CLOSED)
 
     queue_response = client.get("/admin/tickets", headers=admin)

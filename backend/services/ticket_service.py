@@ -2,24 +2,23 @@
 message/activity trail. Every mutation goes through here (never directly in
 a router) so status-transition rules and activity logging happen exactly
 once, in one place.
+
+Every function takes a Supabase client (backend/supabase_client.py) instead
+of a SQLAlchemy Session, and works with plain dicts instead of ORM objects -
+each `.execute()` call is its own HTTP request to Supabase's PostgREST API,
+committed immediately, with no multi-statement transaction spanning several
+calls the way a SQLAlchemy Session used to provide. Timestamps read back
+from Postgres come through as ISO 8601 strings, not datetime objects - see
+_parse_dt() where date arithmetic is needed.
 """
 
 import time
 from datetime import UTC, datetime
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from supabase import Client
 
 from backend.auth import hash_password, verify_password
-from backend.models import (
-    Role,
-    SenderType,
-    Ticket,
-    TicketActivity,
-    TicketMessage,
-    TicketStatus,
-    User,
-)
+from backend.models import Role, SenderType, TicketStatus
 from ticket_router.errors import AppError
 from ticket_router.services.agent_service import chat_with_department, chat_with_general_agent
 from ticket_router.services.resolution_service import check_resolution
@@ -33,50 +32,84 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def log_activity(db: Session, ticket: Ticket, event_type: str, detail: str | None = None) -> None:
-    db.add(TicketActivity(ticket_id=ticket.id, event_type=event_type, detail=detail))
+def _parse_dt(value: str) -> datetime:
+    return datetime.fromisoformat(value)
+
+
+def _maybe_single(query) -> dict | None:
+    # postgrest-py's .maybe_single().execute() returns None outright (not a
+    # response object with .data=None) when zero rows match - normalize that
+    # here so callers can just check `is None` on the return value.
+    result = query.maybe_single().execute()
+    return result.data if result is not None else None
+
+
+def log_activity(
+    client: Client, ticket_id: int, event_type: str, detail: str | None = None
+) -> None:
+    client.table("ticket_activity").insert(
+        {"ticket_id": ticket_id, "event_type": event_type, "detail": detail}
+    ).execute()
 
 
 # --- Accounts -------------------------------------------------------------
 
 
 def create_user(
-    db: Session,
+    client: Client,
     *,
     name: str,
     email: str,
     password: str,
     role: Role = Role.USER,
     department: str | None = None,
-) -> User:
+) -> dict:
     email_normalized = email.strip().lower()
-    existing = db.execute(select(User).where(User.email == email_normalized)).scalar_one_or_none()
-    if existing is not None:
+    existing = client.table("users").select("id").eq("email", email_normalized).execute()
+    if existing.data:
         raise ValueError("An account with this email already exists")
 
-    user = User(
-        name=name,
-        email=email_normalized,
-        password_hash=hash_password(password),
-        role=role,
-        department=department,
+    result = (
+        client.table("users")
+        .insert(
+            {
+                "name": name,
+                "email": email_normalized,
+                "password_hash": hash_password(password),
+                "role": role.value,
+                "department": department,
+            }
+        )
+        .execute()
     )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
+    return result.data[0]
 
 
-def get_user_by_email(db: Session, email: str) -> User | None:
-    return db.execute(select(User).where(User.email == email.strip().lower())).scalar_one_or_none()
+def get_user_by_email(client: Client, email: str) -> dict | None:
+    result = client.table("users").select("*").eq("email", email.strip().lower()).execute()
+    return result.data[0] if result.data else None
 
 
-def authenticate(db: Session, email: str, password: str, role: Role) -> User | None:
-    email_normalized = email.strip().lower()
-    user = db.execute(select(User).where(User.email == email_normalized)).scalar_one_or_none()
-    if user is None or user.role != role:
+def get_user(client: Client, user_id: int) -> dict | None:
+    return _maybe_single(client.table("users").select("*").eq("id", user_id))
+
+
+def list_admins(client: Client, admin: dict) -> list[dict]:
+    """Admin accounts visible to `admin` for the ticket-assignment dropdown -
+    every admin if `admin` is a super-admin, otherwise just their own
+    department's admins.
+    """
+    query = client.table("users").select("id,name,email,department").eq("role", Role.ADMIN.value)
+    if admin["department"] is not None:
+        query = query.eq("department", admin["department"])
+    return query.execute().data
+
+
+def authenticate(client: Client, email: str, password: str, role: Role) -> dict | None:
+    user = get_user_by_email(client, email)
+    if user is None or user["role"] != role.value:
         return None
-    if not verify_password(password, user.password_hash):
+    if not verify_password(password, user["password_hash"]):
         return None
     return user
 
@@ -113,12 +146,49 @@ def reply_to_chat(history: list[tuple[str, str]], message: str):
     return reply, classification
 
 
+def get_ticket(client: Client, ticket_id: int) -> dict | None:
+    """The flat ticket row only - no messages/activity/requester. Used for
+    ownership/scope checks and as the input to the mutation functions below,
+    which only ever need the ticket's own columns.
+    """
+    return _maybe_single(client.table("tickets").select("*").eq("id", ticket_id))
+
+
+def get_ticket_detail(client: Client, ticket_id: int) -> dict | None:
+    """Assembles the full nested shape TicketDetailOut expects - the ticket
+    itself, its messages, its activity log, and the requesting user. There's
+    no lazy-loaded relationship traversal once queries go through the
+    Supabase client, so each piece is fetched explicitly.
+    """
+    ticket = get_ticket(client, ticket_id)
+    if ticket is None:
+        return None
+    messages = (
+        client.table("ticket_messages")
+        .select("*")
+        .eq("ticket_id", ticket_id)
+        .order("created_at")
+        .execute()
+        .data
+    )
+    activity = (
+        client.table("ticket_activity")
+        .select("*")
+        .eq("ticket_id", ticket_id)
+        .order("created_at")
+        .execute()
+        .data
+    )
+    requester = _maybe_single(client.table("users").select("*").eq("id", ticket["user_id"]))
+    return {**ticket, "messages": messages, "activity": activity, "user": requester}
+
+
 def escalate_to_ticket(
-    db: Session,
-    user: User,
+    client: Client,
+    user: dict,
     history: list[tuple[str, str]],
     user_priority: str | None = None,
-) -> Ticket:
+) -> dict:
     """Turns an unresolved chat conversation into a real ticket: persists
     the transcript as ticket_messages, then classifies it with the same
     route_ticket() used by the original single-message flow. If AI
@@ -138,70 +208,87 @@ def escalate_to_ticket(
     )
     title = first_user_message[:80] + ("…" if len(first_user_message) > 80 else "")
 
-    ticket = Ticket(
-        ticket_number="",
-        user_id=user.id,
-        title=title,
-        description=transcript_text,
-        department=UNASSIGNED_DEPARTMENT,
-        priority=user_priority or _DEFAULT_PRIORITY,
-        status=TicketStatus.NEW,
-    )
-    db.add(ticket)
-    db.flush()  # assigns ticket.id without ending the transaction
-    ticket.ticket_number = f"TKT-{ticket.id:05d}"
-    log_activity(db, ticket, "Ticket Created", detail="Escalated from chat")
-
-    for role, content in history:
-        db.add(
-            TicketMessage(
-                ticket_id=ticket.id,
-                sender_type=SenderType.USER if role == "user" else SenderType.AI,
-                sender_id=user.id if role == "user" else None,
-                message=content,
-            )
+    # ticket_number is populated by a Postgres trigger from the row's own
+    # id (see alembic/versions - "cascade deletes and ticket number
+    # trigger") - there's no app-level flush-then-derive step once queries
+    # go through the Supabase client (a plain HTTP request per call, no
+    # partial-transaction concept).
+    ticket = (
+        client.table("tickets")
+        .insert(
+            {
+                "user_id": user["id"],
+                "title": title,
+                "description": transcript_text,
+                "department": UNASSIGNED_DEPARTMENT,
+                "priority": user_priority or _DEFAULT_PRIORITY,
+                "status": TicketStatus.NEW.value,
+            }
         )
+        .execute()
+        .data[0]
+    )
+    log_activity(client, ticket["id"], "Ticket Created", detail="Escalated from chat")
+
+    message_rows = [
+        {
+            "ticket_id": ticket["id"],
+            "sender_type": (SenderType.USER if role == "user" else SenderType.AI).value,
+            "sender_id": user["id"] if role == "user" else None,
+            "message": content,
+        }
+        for role, content in history
+    ]
+    if message_rows:
+        client.table("ticket_messages").insert(message_rows).execute()
 
     started_at = time.perf_counter()
     try:
         result = route_ticket(transcript_text)
     except AppError as error:
-        log_activity(db, ticket, "AI Categorization Failed", detail=str(error))
-        db.commit()
-        db.refresh(ticket)
-        return ticket
-    ticket.ai_processing_ms = (time.perf_counter() - started_at) * 1000
+        log_activity(client, ticket["id"], "AI Categorization Failed", detail=str(error))
+        return get_ticket_detail(client, ticket["id"])
+    ai_processing_ms = (time.perf_counter() - started_at) * 1000
 
-    ticket.department = result.assigned_team
-    ticket.priority = user_priority or result.priority
-    ticket.ai_priority = result.priority
-    ticket.ai_summary = result.reasoning
-    ticket.ai_category = result.category
-    ticket.ai_emotion = result.emotion
-    ticket.ai_confidence = result.confidence
-    ticket.status = TicketStatus.OPEN
     activity_detail = (
         f"{result.category} → {result.assigned_team} "
         f"({result.priority} priority, {result.emotion} tone, {result.confidence:.0%} confidence)"
     )
     if user_priority and user_priority != result.priority:
         activity_detail += f" - customer set priority to {user_priority}"
-    log_activity(db, ticket, "AI Categorized", detail=activity_detail)
-    db.commit()
-    db.refresh(ticket)
+
+    ticket = (
+        client.table("tickets")
+        .update(
+            {
+                "ai_processing_ms": ai_processing_ms,
+                "department": result.assigned_team,
+                "priority": user_priority or result.priority,
+                "ai_priority": result.priority,
+                "ai_summary": result.reasoning,
+                "ai_category": result.category,
+                "ai_emotion": result.emotion,
+                "ai_confidence": result.confidence,
+                "status": TicketStatus.OPEN.value,
+            }
+        )
+        .eq("id", ticket["id"])
+        .execute()
+        .data[0]
+    )
+    log_activity(client, ticket["id"], "AI Categorized", detail=activity_detail)
 
     # Get the department's persona engaged right away, so the customer
     # opening the ticket right after creating it sees a live conversation
     # instead of just their own message sitting unanswered.
-    _department_auto_reply(db, ticket)
-    db.refresh(ticket)
-    return ticket
+    _department_auto_reply(client, ticket)
+    return get_ticket_detail(client, ticket["id"])
 
 
 # --- Messages ---------------------------------------------------------------
 
 
-def _department_auto_reply(db: Session, ticket: Ticket) -> None:
+def _department_auto_reply(client: Client, ticket: dict) -> None:
     """Once a ticket has a real department (AI categorization succeeded)
     and no human admin has taken over yet, the department's own
     skills.md-grounded agent keeps responding to the customer directly -
@@ -214,38 +301,49 @@ def _department_auto_reply(db: Session, ticket: Ticket) -> None:
     Stops permanently the moment a human admin sends a reply, so the AI and
     the admin never talk over each other.
     """
-    if ticket.department == UNASSIGNED_DEPARTMENT:
-        return
-    if any(m.sender_type == SenderType.ADMIN for m in ticket.messages):
+    if ticket["department"] == UNASSIGNED_DEPARTMENT:
         return
 
-    ordered = sorted(ticket.messages, key=lambda m: m.created_at)
+    messages = (
+        client.table("ticket_messages")
+        .select("*")
+        .eq("ticket_id", ticket["id"])
+        .order("created_at")
+        .execute()
+        .data
+    )
+    if any(m["sender_type"] == SenderType.ADMIN.value for m in messages):
+        return
+
     history = [
-        ("user" if m.sender_type == SenderType.USER else "assistant", m.message) for m in ordered
+        ("user" if m["sender_type"] == SenderType.USER.value else "assistant", m["message"])
+        for m in messages
     ]
     if not history or history[-1][0] != "user":
         return
     *prior_history, (_, latest_message) = history
 
     try:
-        reply = chat_with_department(ticket.department, prior_history, latest_message)
+        reply = chat_with_department(ticket["department"], prior_history, latest_message)
     except AppError as error:
-        log_activity(db, ticket, "AI Reply Failed", detail=str(error))
-        db.commit()
+        log_activity(client, ticket["id"], "AI Reply Failed", detail=str(error))
         return
 
-    db.add(
-        TicketMessage(ticket_id=ticket.id, sender_type=SenderType.AI, sender_id=None, message=reply)
-    )
-    log_activity(db, ticket, "AI Replied", detail=f"{ticket.department} agent")
-    db.commit()
-    db.refresh(ticket)
+    client.table("ticket_messages").insert(
+        {
+            "ticket_id": ticket["id"],
+            "sender_type": SenderType.AI.value,
+            "sender_id": None,
+            "message": reply,
+        }
+    ).execute()
+    log_activity(client, ticket["id"], "AI Replied", detail=f"{ticket['department']} agent")
 
-    _maybe_auto_close(db, ticket, prior_history, latest_message)
+    _maybe_auto_close(client, ticket, prior_history, latest_message)
 
 
 def _maybe_auto_close(
-    db: Session, ticket: Ticket, prior_history: list[tuple[str, str]], latest_message: str
+    client: Client, ticket: dict, prior_history: list[tuple[str, str]], latest_message: str
 ) -> None:
     """After the bot replies, checks whether the customer's latest message
     (the one that triggered this reply) just confirmed the issue is
@@ -255,7 +353,7 @@ def _maybe_auto_close(
     accept_solution(). Never re-fires on a ticket that's already
     resolved/closed.
     """
-    if ticket.status in (TicketStatus.RESOLVED, TicketStatus.CLOSED):
+    if ticket["status"] in (TicketStatus.RESOLVED.value, TicketStatus.CLOSED.value):
         return
     if not prior_history:
         # This is the ticket's very first message (e.g. the initial
@@ -269,208 +367,249 @@ def _maybe_auto_close(
     if not result.resolved:
         return
 
-    log_activity(db, ticket, "AI Detected Resolution", detail=result.reasoning)
-    change_status(db, ticket, TicketStatus.RESOLVED)
-    change_status(db, ticket, TicketStatus.CLOSED)
-    db.add(
-        TicketMessage(
-            ticket_id=ticket.id,
-            sender_type=SenderType.AI,
-            sender_id=None,
-            message=(
+    log_activity(client, ticket["id"], "AI Detected Resolution", detail=result.reasoning)
+    ticket = change_status(client, ticket, TicketStatus.RESOLVED)
+    ticket = change_status(client, ticket, TicketStatus.CLOSED)
+    client.table("ticket_messages").insert(
+        {
+            "ticket_id": ticket["id"],
+            "sender_type": SenderType.AI.value,
+            "sender_id": None,
+            "message": (
                 "This ticket has been marked Resolved and Closed since you confirmed the "
                 "issue is fixed. Reply anytime if it comes back."
             ),
-        )
-    )
-    db.commit()
-    db.refresh(ticket)
+        }
+    ).execute()
 
 
-def add_user_message(db: Session, ticket: Ticket, user: User, text: str) -> TicketMessage:
-    if ticket.status == TicketStatus.CLOSED:
+def add_user_message(client: Client, ticket: dict, user: dict, text: str) -> dict:
+    if ticket["status"] == TicketStatus.CLOSED.value:
         raise ValueError("This ticket is closed. Please open a new ticket.")
 
-    message = TicketMessage(
-        ticket_id=ticket.id, sender_type=SenderType.USER, sender_id=user.id, message=text
+    message = (
+        client.table("ticket_messages")
+        .insert(
+            {
+                "ticket_id": ticket["id"],
+                "sender_type": SenderType.USER.value,
+                "sender_id": user["id"],
+                "message": text,
+            }
+        )
+        .execute()
+        .data[0]
     )
-    db.add(message)
-    log_activity(db, ticket, "Customer Replied")
+    log_activity(client, ticket["id"], "Customer Replied")
 
-    if ticket.status == TicketStatus.RESOLVED:
-        ticket.status = TicketStatus.IN_PROGRESS
+    if ticket["status"] == TicketStatus.RESOLVED.value:
+        ticket = (
+            client.table("tickets")
+            .update({"status": TicketStatus.IN_PROGRESS.value})
+            .eq("id", ticket["id"])
+            .execute()
+            .data[0]
+        )
         log_activity(
-            db, ticket, "Status Changed", detail="RESOLVED → IN_PROGRESS (customer replied)"
+            client,
+            ticket["id"],
+            "Status Changed",
+            detail="RESOLVED → IN_PROGRESS (customer replied)",
         )
 
-    db.commit()
-    db.refresh(message)
-    db.refresh(ticket)
-
-    _department_auto_reply(db, ticket)
-    db.refresh(message)
+    _department_auto_reply(client, ticket)
     return message
 
 
-def add_admin_message(db: Session, ticket: Ticket, admin: User, text: str) -> TicketMessage:
-    if ticket.status == TicketStatus.CLOSED:
+def add_admin_message(client: Client, ticket: dict, admin: dict, text: str) -> dict:
+    if ticket["status"] == TicketStatus.CLOSED.value:
         raise ValueError("This ticket is closed and cannot receive new replies.")
 
-    message = TicketMessage(
-        ticket_id=ticket.id, sender_type=SenderType.ADMIN, sender_id=admin.id, message=text
+    message = (
+        client.table("ticket_messages")
+        .insert(
+            {
+                "ticket_id": ticket["id"],
+                "sender_type": SenderType.ADMIN.value,
+                "sender_id": admin["id"],
+                "message": text,
+            }
+        )
+        .execute()
+        .data[0]
     )
-    db.add(message)
-    log_activity(db, ticket, "Admin Replied", detail=f"{admin.name}")
-    db.commit()
-    db.refresh(message)
+    log_activity(client, ticket["id"], "Admin Replied", detail=f"{admin['name']}")
     return message
 
 
 # --- Status / assignment -----------------------------------------------------
 
 
-def change_status(db: Session, ticket: Ticket, new_status: TicketStatus) -> Ticket:
-    if ticket.status == TicketStatus.CLOSED:
+def change_status(client: Client, ticket: dict, new_status: TicketStatus) -> dict:
+    if ticket["status"] == TicketStatus.CLOSED.value:
         raise ValueError("A closed ticket's status cannot be changed.")
 
-    if new_status == ticket.status:
+    if new_status.value == ticket["status"]:
         # No-op: re-selecting the ticket's current status and clicking
         # "Update Status" shouldn't log a redundant "X → X" activity entry.
         return ticket
 
-    old_status = ticket.status
-    ticket.status = new_status
+    old_status = ticket["status"]
+    updates: dict = {"status": new_status.value}
+    # resolved_at/closed_at are only set on this specific transition (not a
+    # blanket "stamp on every write" rule like updated_at), so they're set
+    # explicitly here in the app rather than via a DB trigger.
     if new_status == TicketStatus.RESOLVED:
-        ticket.resolved_at = _utcnow()
+        updates["resolved_at"] = _utcnow().isoformat()
     if new_status == TicketStatus.CLOSED:
-        ticket.closed_at = _utcnow()
+        updates["closed_at"] = _utcnow().isoformat()
 
-    log_activity(db, ticket, "Status Changed", detail=f"{old_status.value} → {new_status.value}")
-    db.commit()
-    db.refresh(ticket)
-    return ticket
-
-
-def assign_admin(db: Session, ticket: Ticket, admin: User) -> Ticket:
-    ticket.assigned_admin_id = admin.id
-    log_activity(db, ticket, "Assigned", detail=f"Assigned to {admin.name}")
-    db.commit()
-    db.refresh(ticket)
-    return ticket
+    updated = client.table("tickets").update(updates).eq("id", ticket["id"]).execute().data[0]
+    log_activity(
+        client, ticket["id"], "Status Changed", detail=f"{old_status} → {new_status.value}"
+    )
+    return updated
 
 
-def reassign(db: Session, ticket: Ticket, department: str | None, priority: str | None) -> Ticket:
+def assign_admin(client: Client, ticket: dict, admin: dict) -> dict:
+    updated = (
+        client.table("tickets")
+        .update({"assigned_admin_id": admin["id"]})
+        .eq("id", ticket["id"])
+        .execute()
+        .data[0]
+    )
+    log_activity(client, ticket["id"], "Assigned", detail=f"Assigned to {admin['name']}")
+    return updated
+
+
+def reassign(client: Client, ticket: dict, department: str | None, priority: str | None) -> dict:
     changes = []
-    if department and department != ticket.department:
-        changes.append(f"department {ticket.department} → {department}")
-        ticket.department = department
-    if priority and priority != ticket.priority:
-        changes.append(f"priority {ticket.priority} → {priority}")
-        ticket.priority = priority
+    updates: dict = {}
+    if department and department != ticket["department"]:
+        changes.append(f"department {ticket['department']} → {department}")
+        updates["department"] = department
+    if priority and priority != ticket["priority"]:
+        changes.append(f"priority {ticket['priority']} → {priority}")
+        updates["priority"] = priority
 
-    if changes:
-        log_activity(db, ticket, "Reassigned", detail="; ".join(changes))
-        db.commit()
-        db.refresh(ticket)
-    return ticket
+    if not changes:
+        return ticket
+
+    updated = client.table("tickets").update(updates).eq("id", ticket["id"]).execute().data[0]
+    log_activity(client, ticket["id"], "Reassigned", detail="; ".join(changes))
+    return updated
 
 
-def accept_solution(db: Session, ticket: Ticket) -> Ticket:
-    if ticket.status != TicketStatus.RESOLVED:
+def accept_solution(client: Client, ticket: dict) -> dict:
+    if ticket["status"] != TicketStatus.RESOLVED.value:
         raise ValueError("Only a resolved ticket can be accepted.")
 
-    ticket.status = TicketStatus.CLOSED
-    ticket.closed_at = _utcnow()
-    log_activity(db, ticket, "Closed", detail="Customer accepted the solution")
-    db.commit()
-    db.refresh(ticket)
-    return ticket
+    updated = (
+        client.table("tickets")
+        .update({"status": TicketStatus.CLOSED.value, "closed_at": _utcnow().isoformat()})
+        .eq("id", ticket["id"])
+        .execute()
+        .data[0]
+    )
+    log_activity(client, ticket["id"], "Closed", detail="Customer accepted the solution")
+    return updated
 
 
-def delete_ticket(db: Session, ticket: Ticket) -> None:
-    """Permanently removes a ticket and its message/activity history
-    (cascade="all, delete-orphan" on Ticket.messages/activity handles the
-    children). Irreversible - the router requires a fresh confirmation from
-    the admin before calling this.
+def delete_ticket(client: Client, ticket: dict) -> None:
+    """Permanently removes a ticket and its message/activity history - the
+    child foreign keys have ondelete="CASCADE" at the DB level (see
+    backend/models.py), so deleting the ticket row is enough; there's no
+    ORM session to cascade this the way relationship(cascade=...) used to.
+    Irreversible - the router requires a fresh confirmation from the admin
+    before calling this.
     """
-    db.delete(ticket)
-    db.commit()
+    client.table("tickets").delete().eq("id", ticket["id"]).execute()
 
 
-def reopen_ticket(db: Session, ticket: Ticket) -> Ticket:
-    if ticket.status != TicketStatus.RESOLVED:
+def reopen_ticket(client: Client, ticket: dict) -> dict:
+    if ticket["status"] != TicketStatus.RESOLVED.value:
         raise ValueError(
             "Only a resolved ticket can be reopened; closed tickets cannot be reopened."
         )
 
-    ticket.status = TicketStatus.IN_PROGRESS
-    log_activity(db, ticket, "Status Changed", detail="RESOLVED → IN_PROGRESS (customer reopened)")
-    db.commit()
-    db.refresh(ticket)
-    return ticket
+    updated = (
+        client.table("tickets")
+        .update({"status": TicketStatus.IN_PROGRESS.value})
+        .eq("id", ticket["id"])
+        .execute()
+        .data[0]
+    )
+    log_activity(
+        client, ticket["id"], "Status Changed", detail="RESOLVED → IN_PROGRESS (customer reopened)"
+    )
+    return updated
 
 
 # --- Access control / queries -------------------------------------------------
 
 
-def admin_can_access(admin: User, ticket: Ticket) -> bool:
+def admin_can_access(admin: dict, ticket: dict) -> bool:
     """A super-admin (department is None) can access every ticket; a
     department-scoped admin only their own department's tickets.
     """
-    return admin.department is None or admin.department == ticket.department
+    return admin["department"] is None or admin["department"] == ticket["department"]
 
 
-def list_tickets_for_user(db: Session, user: User) -> list[Ticket]:
+def list_tickets_for_user(client: Client, user: dict) -> list[dict]:
     # Bulk submission can create several tickets within the same wall-clock
     # millisecond, so created_at alone can tie - id.desc() is a stable
     # tiebreaker (autoincrement, so it's also always submission order),
     # otherwise SQL is free to return tied rows in an arbitrary order and
     # the list appears to "shuffle" between requests.
-    stmt = (
-        select(Ticket)
-        .where(Ticket.user_id == user.id)
-        .order_by(Ticket.created_at.desc(), Ticket.id.desc())
+    result = (
+        client.table("tickets")
+        .select("*")
+        .eq("user_id", user["id"])
+        .order("created_at", desc=True)
+        .order("id", desc=True)
+        .execute()
     )
-    return list(db.execute(stmt).scalars().all())
+    return result.data
 
 
 def list_tickets_for_admin(
-    db: Session,
-    admin: User,
+    client: Client,
+    admin: dict,
     *,
     department: str | None = None,
     priority: str | None = None,
     status_filter: TicketStatus | None = None,
     assigned_admin_id: int | None = None,
     search: str | None = None,
-) -> list[Ticket]:
-    stmt = select(Ticket)
-    if admin.department is not None:
-        stmt = stmt.where(Ticket.department == admin.department)
+) -> list[dict]:
+    query = client.table("tickets").select("*")
+    if admin["department"] is not None:
+        query = query.eq("department", admin["department"])
     if department:
-        stmt = stmt.where(Ticket.department == department)
+        query = query.eq("department", department)
     if priority:
-        stmt = stmt.where(Ticket.priority == priority)
+        query = query.eq("priority", priority)
     if status_filter:
-        stmt = stmt.where(Ticket.status == status_filter)
+        query = query.eq("status", status_filter.value)
     if assigned_admin_id is not None:
-        stmt = stmt.where(Ticket.assigned_admin_id == assigned_admin_id)
-    stmt = stmt.order_by(Ticket.created_at.desc(), Ticket.id.desc())
+        query = query.eq("assigned_admin_id", assigned_admin_id)
+    query = query.order("created_at", desc=True).order("id", desc=True)
 
-    tickets = list(db.execute(stmt).scalars().all())
+    tickets = query.execute().data
     if search:
         needle = search.strip().lower()
         tickets = [
             t
             for t in tickets
-            if needle in t.title.lower()
-            or needle in t.description.lower()
-            or needle in t.ticket_number.lower()
+            if needle in t["title"].lower()
+            or needle in t["description"].lower()
+            or needle in t["ticket_number"].lower()
         ]
     return tickets
 
 
-def _tally(tickets: list[Ticket], key) -> dict[str, int]:
+def _tally(tickets: list[dict], key) -> dict[str, int]:
     counts: dict[str, int] = {}
     for ticket in tickets:
         value = key(ticket)
@@ -480,12 +619,12 @@ def _tally(tickets: list[Ticket], key) -> dict[str, int]:
     return counts
 
 
-def _metrics_for(tickets: list[Ticket]) -> dict:
-    open_tickets = [t for t in tickets if t.status != TicketStatus.CLOSED]
+def _metrics_for(tickets: list[dict]) -> dict:
+    open_tickets = [t for t in tickets if t["status"] != TicketStatus.CLOSED.value]
     resolution_hours = [
-        (t.resolved_at - t.created_at).total_seconds() / 3600
+        (_parse_dt(t["resolved_at"]) - _parse_dt(t["created_at"])).total_seconds() / 3600
         for t in tickets
-        if t.resolved_at is not None
+        if t["resolved_at"] is not None
     ]
     return {
         "open_tickets": len(open_tickets),
@@ -493,26 +632,26 @@ def _metrics_for(tickets: list[Ticket]) -> dict:
         "avg_resolution_hours": (
             sum(resolution_hours) / len(resolution_hours) if resolution_hours else None
         ),
-        "tickets_per_status": _tally(tickets, lambda t: t.status.value),
-        "tickets_per_priority": _tally(tickets, lambda t: t.priority),
-        "tickets_per_emotion": _tally(tickets, lambda t: t.ai_emotion),
+        "tickets_per_status": _tally(tickets, lambda t: t["status"]),
+        "tickets_per_priority": _tally(tickets, lambda t: t["priority"]),
+        "tickets_per_emotion": _tally(tickets, lambda t: t["ai_emotion"]),
     }
 
 
-def dashboard_metrics(db: Session, admin: User) -> dict:
+def dashboard_metrics(client: Client, admin: dict) -> dict:
     """Overall metrics for this admin's scope (their one department, or every
     department for a super-admin). A super-admin additionally gets
     `by_department`: the same metric shape computed separately for each
     department that has at least one ticket, so the dashboard can show a
     dedicated section per team instead of just one blended aggregate.
     """
-    tickets = list_tickets_for_admin(db, admin)
+    tickets = list_tickets_for_admin(client, admin)
     metrics = _metrics_for(tickets)
-    metrics["tickets_per_department"] = _tally(tickets, lambda t: t.department)
+    metrics["tickets_per_department"] = _tally(tickets, lambda t: t["department"])
 
-    if admin.department is None:
+    if admin["department"] is None:
         metrics["by_department"] = {
-            department: _metrics_for([t for t in tickets if t.department == department])
+            department: _metrics_for([t for t in tickets if t["department"] == department])
             for department in metrics["tickets_per_department"]
         }
 

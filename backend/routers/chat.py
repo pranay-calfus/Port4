@@ -1,9 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
 
 from backend.auth import require_user
-from backend.db import get_db
-from backend.models import User
 from backend.schemas import (
     ChatMessageRequest,
     ChatMessageResponse,
@@ -12,6 +9,7 @@ from backend.schemas import (
     TicketDetailOut,
 )
 from backend.services import ticket_service
+from backend.supabase_client import client
 from ticket_router.errors import AppError
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -20,7 +18,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 @router.post("/message", response_model=ChatMessageResponse)
 def send_message(
     payload: ChatMessageRequest,
-    user: User = Depends(require_user),  # noqa: ARG001 - login required before chatting, see plan
+    user: dict = Depends(require_user),  # noqa: ARG001 - login required before chatting, see plan
 ):
     history_tuples = [(turn.role, turn.content) for turn in payload.history]
     try:
@@ -41,10 +39,9 @@ def send_message(
 @router.post("/escalate", response_model=TicketDetailOut, status_code=status.HTTP_201_CREATED)
 def escalate(
     payload: EscalateRequest,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
+    user: dict = Depends(require_user),
 ):
     history_tuples = [(turn.role, turn.content) for turn in payload.history]
     return ticket_service.escalate_to_ticket(
-        db, user, history_tuples, user_priority=payload.priority
+        client, user, history_tuples, user_priority=payload.priority
     )

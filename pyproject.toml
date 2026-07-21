@@ -5,6 +5,9 @@ target-version = ["py312"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Alembic-generated migration files follow Alembic's own template
+# conventions, not this project's style - not worth hand-editing to match.
+exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

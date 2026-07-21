@@ -8,10 +8,9 @@ import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy.orm import Session
 
-from backend.db import get_db
-from backend.models import Role, User
+from backend.models import Role
+from backend.supabase_client import client
 from ticket_router.config import config
 
 _bearer_scheme = HTTPBearer(auto_error=False)
@@ -25,12 +24,12 @@ def verify_password(password: str, password_hash: str) -> bool:
     return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
 
 
-def create_access_token(user: User) -> str:
+def create_access_token(user: dict) -> str:
     now = datetime.now(UTC)
     payload = {
-        "sub": str(user.id),
-        "role": user.role.value,
-        "department": user.department,
+        "sub": str(user["id"]),
+        "role": user["role"],
+        "department": user["department"],
         "iat": now,
         "exp": now + timedelta(minutes=config.JWT_EXPIRE_MINUTES),
     }
@@ -48,23 +47,22 @@ def _decode_token(token: str) -> dict:
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
-    db: Session = Depends(get_db),
-) -> User:
+) -> dict:
     if credentials is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
     payload = _decode_token(credentials.credentials)
-    user = db.get(User, int(payload["sub"]))
-    if user is None:
+    result = client.table("users").select("*").eq("id", int(payload["sub"])).execute()
+    if not result.data:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User no longer exists"
         )
-    return user
+    return result.data[0]
 
 
 def require_role(role: Role):
-    def _dependency(user: User = Depends(get_current_user)) -> User:
-        if user.role != role:
+    def _dependency(user: dict = Depends(get_current_user)) -> dict:
+        if user["role"] != role.value:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions"
             )

@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.db import init_db
+from backend.db import run_migrations
 from backend.routers import admin, auth, chat, tickets
 from ticket_router.config import config
 from ticket_router.errors import AppError
@@ -12,7 +12,7 @@ from ticket_router.errors import AppError
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001
-    init_db()
+    run_migrations()
     yield
 
 

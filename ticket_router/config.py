@@ -1,16 +1,18 @@
 import os
-from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Anchored to the repo root (not the process's current working directory) -
-# same reasoning as SKILLS_DIR elsewhere in this codebase. A cwd-relative
-# path would resolve to a different file depending on where `uvicorn`
-# (or backend.create_admin, or an IDE's runner) happens to be launched
-# from, silently pointing them at two different, mostly empty databases.
-_DEFAULT_DATABASE_URL = "sqlite:///" + str(Path(__file__).resolve().parent.parent / "port4.db")
+
+def _require_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(
+            f"{name} is not set. Copy .env.example to .env and fill in your "
+            "Supabase connection strings (Project Settings -> Database)."
+        )
+    return value
 
 
 class Config:
@@ -32,12 +34,22 @@ class Config:
     # ticket_router.ai.openai_provider.build_model_chain.
     OPENAI_FALLBACK_MODELS: str = os.getenv("OPENAI_FALLBACK_MODELS", "")
 
-    # SQLAlchemy connection URL for the backend API's database (users,
-    # tickets, ticket_messages, ticket_activity - see backend/models.py).
-    # Defaults to a SQLite file so the app runs with zero setup; swapping to
-    # Postgres later is a matter of changing this URL, not the code, since
-    # everything above this is SQLAlchemy.
-    DATABASE_URL: str = os.getenv("DATABASE_URL", _DEFAULT_DATABASE_URL)
+    # Supabase project URL and secret (service_role) key - the app's only
+    # runtime connection to the database, via backend/supabase_client.py.
+    # The secret key is used (not the publishable/anon key) because the
+    # backend is a trusted server with no Row-Level Security policies in
+    # place; it needs unrestricted table access.
+    SUPABASE_URL: str = _require_env("SUPABASE_URL")
+    SUPABASE_SECRET_KEY: str = _require_env("SUPABASE_SECRET_KEY")
+
+    # Raw Postgres connection to the same Supabase project, used exclusively
+    # by Alembic (see backend/db.py: run_migrations()) and the test suite's
+    # table-truncation fixture (tests/backend/conftest.py) - the app itself
+    # never opens its own database connection, it goes through the Supabase
+    # client above. Point this at Supabase's session-pooler connection
+    # (or true direct connection, if your network has IPv6) - the
+    # transaction-mode pooler can't run all DDL.
+    DIRECT_URL: str = _require_env("DIRECT_URL")
 
     # Secret key signing JWT access tokens issued by backend/auth.py. Must
     # be set explicitly in production - see backend.auth for the startup

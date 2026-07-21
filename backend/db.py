@@ -1,73 +1,54 @@
-"""SQLAlchemy engine/session setup for the backend API.
+"""Schema management for the backend API's Supabase Postgres database.
 
-Everything above this module is written against the ORM, not raw SQL or a
-specific database - swapping ticket_router.config.config.DATABASE_URL from
-SQLite to Postgres later is a connection-string change, not a rewrite.
+The app itself never opens its own database connection - all runtime
+queries go through backend/supabase_client.py's Supabase client instead.
+This module exists purely so Alembic has a `Base.metadata` to diff against
+(see backend/models.py, alembic/env.py) and so the app can auto-apply
+pending migrations on startup via run_migrations().
 """
 
-from collections.abc import Iterator
+from pathlib import Path
 
-from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import DeclarativeBase
 
 from ticket_router.config import config
 
-# check_same_thread=False is required for SQLite + FastAPI's threaded
-# request handling; it's a no-op connect_arg for every other backend.
-_connect_args = {"check_same_thread": False} if config.DATABASE_URL.startswith("sqlite") else {}
-
-engine = create_engine(config.DATABASE_URL, connect_args=_connect_args)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class Base(DeclarativeBase):
     pass
 
 
-def _add_missing_columns() -> None:
-    """Best-effort, additive-only schema sync for an existing database
-    file: adds any model column that doesn't exist in the actual table yet
-    (e.g. a column added during development against a DB file created
-    before it existed). create_all() only creates missing *tables*, never
-    alters existing ones, so without this a stale local DB starts raising
-    "no such column" errors the moment the model gains a field.
+# Arbitrary constant, just needs to be the same across every process that
+# might call run_migrations() concurrently (e.g. multiple uvicorn/gunicorn
+# workers booting at once). Postgres advisory locks are keyed by this
+# integer across the whole database, not tied to any table.
+_MIGRATION_LOCK_KEY = 727271
 
-    This is not a substitute for real migrations (Alembic, due before the
-    eventual Postgres move) - it only ever ADDs nullable columns, never
-    renames/drops/alters existing ones - but it keeps local SQLite files
-    usable across schema tweaks without needing to delete them.
+
+def run_migrations() -> None:
+    """Applies any pending Alembic migrations against DIRECT_URL. Safe to
+    call on every process start (mirrors this module's old init_db()
+    behavior) - a no-op once the schema is already at head. Held behind a
+    Postgres advisory lock so multiple workers booting at the same time
+    don't race applying migrations against each other.
     """
-    inspector = inspect(engine)
-    with engine.begin() as conn:
-        for table in Base.metadata.sorted_tables:
-            if not inspector.has_table(table.name):
-                continue
-            existing_columns = {col["name"] for col in inspector.get_columns(table.name)}
-            for column in table.columns:
-                if column.name in existing_columns:
-                    continue
-                col_type = column.type.compile(dialect=engine.dialect)
-                conn.execute(
-                    text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type}')
-                )
+    from alembic.config import Config as AlembicConfig
 
+    from alembic import command
 
-def init_db() -> None:
-    """Creates all tables if they don't already exist, then patches any
-    missing columns onto tables that already existed. Safe to call on
-    every process start (mirrors ticket_router.db.init_db()'s old
-    behavior) - both steps are idempotent no-ops once the schema is current.
-    """
-    from backend import models  # noqa: F401 - registers tables on Base.metadata
-
-    Base.metadata.create_all(bind=engine)
-    _add_missing_columns()
-
-
-def get_db() -> Iterator[Session]:
-    """FastAPI dependency yielding one Session per request."""
-    db = SessionLocal()
+    direct_engine = create_engine(config.DIRECT_URL)
     try:
-        yield db
+        with direct_engine.connect() as conn:
+            conn.execute(text("SELECT pg_advisory_lock(:key)"), {"key": _MIGRATION_LOCK_KEY})
+            try:
+                cfg = AlembicConfig(str(REPO_ROOT / "alembic.ini"))
+                cfg.set_main_option("script_location", str(REPO_ROOT / "alembic"))
+                cfg.set_main_option("sqlalchemy.url", config.DIRECT_URL)
+                command.upgrade(cfg, "head")
+            finally:
+                conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": _MIGRATION_LOCK_KEY})
     finally:
-        db.close()
+        direct_engine.dispose()

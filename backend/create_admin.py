@@ -12,9 +12,10 @@ Usage:
 import argparse
 import sys
 
-from backend.db import SessionLocal, init_db
+from backend.db import run_migrations
 from backend.models import Role
 from backend.services import ticket_service
+from backend.supabase_client import client
 from ticket_router.models import ASSIGNED_TEAMS
 
 
@@ -31,11 +32,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    init_db()
-    db = SessionLocal()
+    run_migrations()
     try:
         user = ticket_service.create_user(
-            db,
+            client,
             name=args.name,
             email=args.email,
             password=args.password,
@@ -45,11 +45,9 @@ def main() -> int:
     except ValueError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
-    finally:
-        db.close()
 
     scope = args.department or "all departments (super-admin)"
-    print(f"Created admin '{user.name}' <{user.email}> scoped to: {scope}")
+    print(f"Created admin '{user['name']}' <{user['email']}> scoped to: {scope}")
     return 0
 
 

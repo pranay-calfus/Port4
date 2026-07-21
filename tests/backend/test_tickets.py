@@ -1,6 +1,16 @@
+import re
+
 from backend.services import ticket_service
 from ticket_router.errors import AIUnavailableError
 from ticket_router.models import ResolutionCheck, TicketRouteResult
+
+TICKET_NUMBER_RE = re.compile(r"^TKT-(\d{5})$")
+
+
+def _ticket_number_seq(ticket_number: str) -> int:
+    match = TICKET_NUMBER_RE.match(ticket_number)
+    assert match, f"unexpected ticket_number format: {ticket_number!r}"
+    return int(match.group(1))
 
 
 def _stub_resolution(monkeypatch, resolved, reasoning="test"):
@@ -60,7 +70,7 @@ def test_escalate_creates_ticket_with_ai_categorization(client, monkeypatch):
     response = _escalate(client, headers)
     assert response.status_code == 201
     ticket = response.json()
-    assert ticket["ticket_number"] == "TKT-00001"
+    assert TICKET_NUMBER_RE.match(ticket["ticket_number"])
     assert ticket["status"] == "OPEN"
     assert ticket["department"] == "Billing Team"
     assert ticket["priority"] == "High"
@@ -145,8 +155,9 @@ def test_bulk_create_tickets_creates_one_ticket_per_message(client, monkeypatch)
     assert response.status_code == 201
     tickets = response.json()
     assert len(tickets) == 2  # the blank entry is dropped
-    assert tickets[0]["ticket_number"] == "TKT-00001"
-    assert tickets[1]["ticket_number"] == "TKT-00002"
+    first_seq = _ticket_number_seq(tickets[0]["ticket_number"])
+    second_seq = _ticket_number_seq(tickets[1]["ticket_number"])
+    assert second_seq == first_seq + 1
     assert all(t["ai_category"] == "Billing" for t in tickets)
 
 
@@ -160,10 +171,10 @@ def test_bulk_create_tickets_rejects_all_blank_messages(client):
 def test_user_cannot_see_another_users_ticket(client, monkeypatch):
     _fake_route_ticket_success(monkeypatch)
     alice_headers = _register_and_login(client, email="alice@example.com")
-    _escalate(client, alice_headers)
+    ticket_id = _escalate(client, alice_headers).json()["id"]
 
     bob_headers = _register_and_login(client, email="bob@example.com")
-    response = client.get("/tickets/1", headers=bob_headers)
+    response = client.get(f"/tickets/{ticket_id}", headers=bob_headers)
     assert response.status_code == 404
 
 
@@ -174,19 +185,19 @@ def test_reply_to_resolved_ticket_reopens_to_in_progress(client, monkeypatch, db
     )
     _stub_resolution(monkeypatch, resolved=False)
     headers = _register_and_login(client)
-    _escalate(client, headers)
+    ticket_id = _escalate(client, headers).json()["id"]
 
-    from backend.models import Ticket, TicketStatus
+    from backend.models import TicketStatus
 
-    ticket = db_session.get(Ticket, 1)
+    ticket = ticket_service.get_ticket(db_session, ticket_id)
     ticket_service.change_status(db_session, ticket, TicketStatus.RESOLVED)
 
     response = client.post(
-        "/tickets/1/messages", headers=headers, json={"message": "This didn't fix it."}
+        f"/tickets/{ticket_id}/messages", headers=headers, json={"message": "This didn't fix it."}
     )
     assert response.status_code == 201
 
-    ticket_response = client.get("/tickets/1", headers=headers)
+    ticket_response = client.get(f"/tickets/{ticket_id}", headers=headers)
     assert ticket_response.json()["status"] == "IN_PROGRESS"
 
 
@@ -199,12 +210,14 @@ def test_customer_reply_gets_department_agent_auto_reply(client, monkeypatch):
     )
     _stub_resolution(monkeypatch, resolved=False)
     headers = _register_and_login(client)
-    _escalate(client, headers)
+    ticket_id = _escalate(client, headers).json()["id"]
 
-    response = client.post("/tickets/1/messages", headers=headers, json={"message": "Any update?"})
+    response = client.post(
+        f"/tickets/{ticket_id}/messages", headers=headers, json={"message": "Any update?"}
+    )
     assert response.status_code == 201
 
-    detail = client.get("/tickets/1", headers=headers).json()
+    detail = client.get(f"/tickets/{ticket_id}", headers=headers).json()
     messages = detail["messages"]
     assert messages[-1]["sender_type"] == "AI"
     assert messages[-1]["message"] == "[Billing Team agent] Thanks, looking into: Any update?"
@@ -220,14 +233,16 @@ def test_bot_auto_closes_ticket_when_customer_confirms_resolution(client, monkey
     )
     _stub_resolution(monkeypatch, resolved=True, reasoning="Customer said 'that fixed it, thanks!'")
     headers = _register_and_login(client)
-    _escalate(client, headers)
+    ticket_id = _escalate(client, headers).json()["id"]
 
     response = client.post(
-        "/tickets/1/messages", headers=headers, json={"message": "That fixed it, thanks!"}
+        f"/tickets/{ticket_id}/messages",
+        headers=headers,
+        json={"message": "That fixed it, thanks!"},
     )
     assert response.status_code == 201
 
-    detail = client.get("/tickets/1", headers=headers).json()
+    detail = client.get(f"/tickets/{ticket_id}", headers=headers).json()
     assert detail["status"] == "CLOSED"
     event_types = [a["event_type"] for a in detail["activity"]]
     assert "AI Detected Resolution" in event_types
@@ -247,11 +262,11 @@ def test_bot_does_not_auto_close_when_customer_has_not_confirmed_resolution(clie
     )
     _stub_resolution(monkeypatch, resolved=False, reasoning="No confirmation in the message")
     headers = _register_and_login(client)
-    _escalate(client, headers)
+    ticket_id = _escalate(client, headers).json()["id"]
 
-    client.post("/tickets/1/messages", headers=headers, json={"message": "Any update?"})
+    client.post(f"/tickets/{ticket_id}/messages", headers=headers, json={"message": "Any update?"})
 
-    detail = client.get("/tickets/1", headers=headers).json()
+    detail = client.get(f"/tickets/{ticket_id}", headers=headers).json()
     assert detail["status"] == "OPEN"
     assert "AI Detected Resolution" not in [a["event_type"] for a in detail["activity"]]
 
@@ -265,18 +280,20 @@ def test_department_agent_stops_replying_once_admin_takes_over(client, monkeypat
         lambda team, history, message: calls.append(message) or "auto-reply",
     )
     headers = _register_and_login(client)
-    _escalate(client, headers)  # triggers the ticket's own initial auto-reply
+    ticket_id = _escalate(client, headers).json()[
+        "id"
+    ]  # triggers the ticket's own initial auto-reply
 
-    from backend.models import Role, Ticket
+    from backend.models import Role
 
-    ticket = db_session.get(Ticket, 1)
+    ticket = ticket_service.get_ticket(db_session, ticket_id)
     admin = ticket_service.create_user(
         db_session, name="Ops", email="ops@example.com", password="adminpass1", role=Role.ADMIN
     )
     ticket_service.add_admin_message(db_session, ticket, admin, "A human is now on this.")
 
     calls_before_admin_reply = len(calls)
-    client.post("/tickets/1/messages", headers=headers, json={"message": "Hello again?"})
+    client.post(f"/tickets/{ticket_id}/messages", headers=headers, json={"message": "Hello again?"})
     assert len(calls) == calls_before_admin_reply  # no new call after an admin reply
 
 
@@ -289,52 +306,53 @@ def test_unassigned_department_never_gets_an_agent_reply(client, monkeypatch):
         lambda team, history, message: called.append(1) or "should not be called",
     )
     headers = _register_and_login(client)
-    _escalate(client, headers)
+    ticket_id = _escalate(client, headers).json()["id"]
 
-    client.post("/tickets/1/messages", headers=headers, json={"message": "Hello?"})
+    client.post(f"/tickets/{ticket_id}/messages", headers=headers, json={"message": "Hello?"})
     assert called == []
 
 
 def test_repeated_same_status_update_does_not_add_activity_entry(client, monkeypatch, db_session):
     _fake_route_ticket_success(monkeypatch)
     headers = _register_and_login(client)
-    _escalate(client, headers)
+    ticket_id = _escalate(client, headers).json()["id"]
 
-    from backend.models import Ticket, TicketStatus
+    from backend.models import TicketStatus
 
-    ticket = db_session.get(Ticket, 1)
+    ticket = ticket_service.get_ticket(db_session, ticket_id)
+    ticket = ticket_service.change_status(db_session, ticket, TicketStatus.PENDING_CUSTOMER)
+    activity_count_before = len(ticket_service.get_ticket_detail(db_session, ticket_id)["activity"])
+
     ticket_service.change_status(db_session, ticket, TicketStatus.PENDING_CUSTOMER)
-    activity_count_before = len(ticket.activity)
-
-    ticket_service.change_status(db_session, ticket, TicketStatus.PENDING_CUSTOMER)
-    assert len(ticket.activity) == activity_count_before
+    activity_count_after = len(ticket_service.get_ticket_detail(db_session, ticket_id)["activity"])
+    assert activity_count_after == activity_count_before
 
 
 def test_accept_solution_requires_resolved_status(client, monkeypatch):
     _fake_route_ticket_success(monkeypatch)
     headers = _register_and_login(client)
-    _escalate(client, headers)
+    ticket_id = _escalate(client, headers).json()["id"]
 
-    response = client.post("/tickets/1/accept-solution", headers=headers)
+    response = client.post(f"/tickets/{ticket_id}/accept-solution", headers=headers)
     assert response.status_code == 409
 
 
 def test_reply_to_closed_ticket_is_rejected(client, monkeypatch, db_session):
     _fake_route_ticket_success(monkeypatch)
     headers = _register_and_login(client)
-    _escalate(client, headers)
+    ticket_id = _escalate(client, headers).json()["id"]
 
-    from backend.models import Ticket, TicketStatus
+    from backend.models import TicketStatus
 
-    ticket = db_session.get(Ticket, 1)
-    ticket_service.change_status(db_session, ticket, TicketStatus.RESOLVED)
-    ticket_service.accept_solution(db_session, ticket)
-    assert ticket.status == TicketStatus.CLOSED
+    ticket = ticket_service.get_ticket(db_session, ticket_id)
+    ticket = ticket_service.change_status(db_session, ticket, TicketStatus.RESOLVED)
+    ticket = ticket_service.accept_solution(db_session, ticket)
+    assert ticket["status"] == TicketStatus.CLOSED.value
 
     response = client.post(
-        "/tickets/1/messages", headers=headers, json={"message": "One more thing..."}
+        f"/tickets/{ticket_id}/messages", headers=headers, json={"message": "One more thing..."}
     )
     assert response.status_code == 409
 
-    reopen_response = client.post("/tickets/1/reopen", headers=headers)
+    reopen_response = client.post(f"/tickets/{ticket_id}/reopen", headers=headers)
     assert reopen_response.status_code == 409

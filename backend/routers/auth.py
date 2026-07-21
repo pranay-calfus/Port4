@@ -1,11 +1,9 @@
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
 
 from backend.auth import create_access_token, get_current_user
-from backend.db import get_db
-from backend.models import Role, User
+from backend.models import Role
 from backend.schemas import (
     ForgotPasswordRequest,
     LoginRequest,
@@ -14,13 +12,14 @@ from backend.schemas import (
     UserOut,
 )
 from backend.services import ticket_service
+from backend.supabase_client import client
 from ticket_router.logger import logger
 
 router = APIRouter(tags=["auth"])
 
 
 @router.get("/auth/me", response_model=UserOut)
-def me(user: User = Depends(get_current_user)) -> User:
+def me(user: dict = Depends(get_current_user)) -> dict:
     # Works for either role - used by the frontend to restore a session
     # from a persisted token (e.g. after a browser refresh) without the
     # caller needing to know in advance whether it's a user or admin token.
@@ -28,10 +27,14 @@ def me(user: User = Depends(get_current_user)) -> User:
 
 
 @router.post("/auth/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenResponse:
+def register(payload: RegisterRequest) -> TokenResponse:
     try:
         user = ticket_service.create_user(
-            db, name=payload.name, email=payload.email, password=payload.password, role=Role.USER
+            client,
+            name=payload.name,
+            email=payload.email,
+            password=payload.password,
+            role=Role.USER,
         )
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
@@ -40,8 +43,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenRe
 
 
 @router.post("/auth/login", response_model=TokenResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
-    user = ticket_service.authenticate(db, payload.email, payload.password, role=Role.USER)
+def login(payload: LoginRequest) -> TokenResponse:
+    user = ticket_service.authenticate(client, payload.email, payload.password, role=Role.USER)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password"
@@ -50,8 +53,8 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
 
 
 @router.post("/admin/login", response_model=TokenResponse)
-def admin_login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
-    user = ticket_service.authenticate(db, payload.email, payload.password, role=Role.ADMIN)
+def admin_login(payload: LoginRequest) -> TokenResponse:
+    user = ticket_service.authenticate(client, payload.email, payload.password, role=Role.ADMIN)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password"
@@ -68,14 +71,14 @@ def logout() -> None:
 
 
 @router.post("/auth/forgot-password", status_code=status.HTTP_202_ACCEPTED)
-def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)) -> dict:
+def forgot_password(payload: ForgotPasswordRequest) -> dict:
     # Placeholder: no email delivery is wired up yet. A real reset token is
     # generated and logged server-side so the flow is testable end-to-end;
     # wiring up an email provider is a follow-up. Always returns the same
     # generic response regardless of whether the email exists, so this
     # endpoint can't be used to enumerate registered accounts.
-    user = ticket_service.get_user_by_email(db, payload.email)
-    if user is not None and user.role == Role.USER:
+    user = ticket_service.get_user_by_email(client, payload.email)
+    if user is not None and user["role"] == Role.USER.value:
         reset_token = secrets.token_urlsafe(32)
         logger.info(
             "Password reset requested", {"email": payload.email, "reset_token": reset_token}
