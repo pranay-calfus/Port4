@@ -20,8 +20,10 @@ from supabase import Client
 from backend.auth import hash_password, verify_password
 from backend.models import Role, SenderType, TicketStatus
 from ticket_router.errors import AppError
+from ticket_router.models import NO_STATUS_CHANGE
 from ticket_router.services.agent_service import chat_with_department, chat_with_general_agent
 from ticket_router.services.resolution_service import check_resolution
+from ticket_router.services.status_progression_service import check_status_progression
 from ticket_router.services.ticket_routing_service import route_ticket
 
 UNASSIGNED_DEPARTMENT = "Unassigned"
@@ -103,6 +105,18 @@ def list_admins(client: Client, admin: dict) -> list[dict]:
     if admin["department"] is not None:
         query = query.eq("department", admin["department"])
     return query.execute().data
+
+
+def delete_admin(client: Client, target: dict) -> None:
+    """Permanently removes a team/admin account. Tickets they were assigned
+    to are unassigned rather than blocked or deleted - see the
+    ondelete="SET NULL" foreign keys on Ticket.assigned_admin_id and
+    TicketMessage.sender_id (backend/models.py) - so ticket and message
+    history survives the admin account being removed. Irreversible - the
+    router requires the caller to be a super-admin and to not be deleting
+    their own account.
+    """
+    client.table("users").delete().eq("id", target["id"]).execute()
 
 
 def authenticate(client: Client, email: str, password: str, role: Role) -> dict | None:
@@ -324,7 +338,9 @@ def _department_auto_reply(client: Client, ticket: dict) -> None:
     *prior_history, (_, latest_message) = history
 
     try:
-        reply = chat_with_department(ticket["department"], prior_history, latest_message)
+        reply = chat_with_department(
+            ticket["department"], prior_history, latest_message, current_status=ticket["status"]
+        )
     except AppError as error:
         log_activity(client, ticket["id"], "AI Reply Failed", detail=str(error))
         return
@@ -339,33 +355,35 @@ def _department_auto_reply(client: Client, ticket: dict) -> None:
     ).execute()
     log_activity(client, ticket["id"], "AI Replied", detail=f"{ticket['department']} agent")
 
-    _maybe_auto_close(client, ticket, prior_history, latest_message)
+    ticket = _maybe_auto_close(client, ticket, prior_history, latest_message)
+    if ticket["status"] not in (TicketStatus.RESOLVED.value, TicketStatus.CLOSED.value):
+        _maybe_progress_status(client, ticket, prior_history, latest_message)
 
 
 def _maybe_auto_close(
     client: Client, ticket: dict, prior_history: list[tuple[str, str]], latest_message: str
-) -> None:
+) -> dict:
     """After the bot replies, checks whether the customer's latest message
     (the one that triggered this reply) just confirmed the issue is
     resolved - if so, the bot closes the loop itself (RESOLVED, then
     immediately CLOSED) instead of waiting on a human admin, the same
     outcome a customer clicking "Accept Solution" produces via
     accept_solution(). Never re-fires on a ticket that's already
-    resolved/closed.
+    resolved/closed. Returns the ticket row, updated if it was just closed.
     """
     if ticket["status"] in (TicketStatus.RESOLVED.value, TicketStatus.CLOSED.value):
-        return
+        return ticket
     if not prior_history:
         # This is the ticket's very first message (e.g. the initial
         # auto-reply fired right after creation) - nothing has been
         # discussed yet, so it cannot possibly be a resolution
         # confirmation. Skip the classifier call entirely.
-        return
+        return ticket
 
     transcript = _transcript_to_text([*prior_history, ("user", latest_message)])
     result = check_resolution(transcript, latest_message)
     if not result.resolved:
-        return
+        return ticket
 
     log_activity(client, ticket["id"], "AI Detected Resolution", detail=result.reasoning)
     ticket = change_status(client, ticket, TicketStatus.RESOLVED)
@@ -378,6 +396,58 @@ def _maybe_auto_close(
             "message": (
                 "This ticket has been marked Resolved and Closed since you confirmed the "
                 "issue is fixed. Reply anytime if it comes back."
+            ),
+        }
+    ).execute()
+    return ticket
+
+
+_STATUS_PROGRESSION_VALUES = {
+    TicketStatus.OPEN.value,
+    TicketStatus.IN_PROGRESS.value,
+    TicketStatus.PENDING_CUSTOMER.value,
+    TicketStatus.ON_HOLD.value,
+}
+
+
+def _status_label(status: str) -> str:
+    return status.replace("_", " ").title()
+
+
+def _maybe_progress_status(
+    client: Client, ticket: dict, prior_history: list[tuple[str, str]], latest_message: str
+) -> None:
+    """After the bot replies (and the ticket wasn't just auto-closed), checks
+    whether the conversation so far indicates the ticket should move to a
+    different mid-lifecycle status (OPEN/IN_PROGRESS/PENDING_CUSTOMER/
+    ON_HOLD) - the same "let the AI keep the ticket's status honest" idea as
+    _maybe_auto_close, just for the stages before resolution. Only ever
+    moves between these four statuses; RESOLVED/CLOSED stay
+    _maybe_auto_close's job, and a ticket that's NEW (AI categorization
+    still pending/failed) or already RESOLVED/CLOSED is left alone.
+    """
+    if ticket["status"] not in _STATUS_PROGRESSION_VALUES:
+        return
+    if not prior_history:
+        # Same reasoning as _maybe_auto_close - the very first auto-reply
+        # has no prior turn to judge progression from.
+        return
+
+    transcript = _transcript_to_text([*prior_history, ("user", latest_message)])
+    result = check_status_progression(transcript, latest_message, ticket["status"])
+    if result.recommended_status in (NO_STATUS_CHANGE, ticket["status"]):
+        return
+
+    log_activity(client, ticket["id"], "AI Progressed Status", detail=result.reasoning)
+    ticket = change_status(client, ticket, TicketStatus(result.recommended_status))
+    client.table("ticket_messages").insert(
+        {
+            "ticket_id": ticket["id"],
+            "sender_type": SenderType.AI.value,
+            "sender_id": None,
+            "message": (
+                f"{result.reasoning} I've updated this ticket to "
+                f"**{_status_label(result.recommended_status)}**."
             ),
         }
     ).execute()
@@ -501,6 +571,24 @@ def reassign(client: Client, ticket: dict, department: str | None, priority: str
     return updated
 
 
+def update_priority(client: Client, ticket: dict, priority: str) -> dict:
+    """Customer-facing priority override. Never touches ai_priority - that
+    stays the AI's original immutable suggestion (see Ticket.ai_priority in
+    backend/models.py) so PriorityHint can keep showing the divergence even
+    after the customer changes priority again.
+    """
+    if priority == ticket["priority"]:
+        return ticket
+
+    updated = (
+        client.table("tickets").update({"priority": priority}).eq("id", ticket["id"]).execute().data[0]
+    )
+    log_activity(
+        client, ticket["id"], "Priority Changed", detail=f"{ticket['priority']} → {priority} (by customer)"
+    )
+    return updated
+
+
 def accept_solution(client: Client, ticket: dict) -> dict:
     if ticket["status"] != TicketStatus.RESOLVED.value:
         raise ValueError("Only a resolved ticket can be accepted.")
@@ -573,6 +661,14 @@ def list_tickets_for_user(client: Client, user: dict) -> list[dict]:
     return result.data
 
 
+def _end_of_day(date_str: str) -> str:
+    # date_str is a plain "YYYY-MM-DD" from an HTML <input type="date">, so
+    # a bare .lte(date_to) would exclude that whole day's tickets (anything
+    # after 00:00:00 on date_to) - push it to the last instant of the day
+    # so "to 2026-01-31" actually includes 2026-01-31.
+    return f"{date_str}T23:59:59.999999"
+
+
 def list_tickets_for_admin(
     client: Client,
     admin: dict,
@@ -582,6 +678,8 @@ def list_tickets_for_admin(
     status_filter: TicketStatus | None = None,
     assigned_admin_id: int | None = None,
     search: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> list[dict]:
     query = client.table("tickets").select("*")
     if admin["department"] is not None:
@@ -594,6 +692,10 @@ def list_tickets_for_admin(
         query = query.eq("status", status_filter.value)
     if assigned_admin_id is not None:
         query = query.eq("assigned_admin_id", assigned_admin_id)
+    if date_from:
+        query = query.gte("created_at", date_from)
+    if date_to:
+        query = query.lte("created_at", _end_of_day(date_to))
     query = query.order("created_at", desc=True).order("id", desc=True)
 
     tickets = query.execute().data
@@ -635,19 +737,29 @@ def _metrics_for(tickets: list[dict]) -> dict:
         "tickets_per_status": _tally(tickets, lambda t: t["status"]),
         "tickets_per_priority": _tally(tickets, lambda t: t["priority"]),
         "tickets_per_emotion": _tally(tickets, lambda t: t["ai_emotion"]),
+        "tickets_per_category": _tally(tickets, lambda t: t["ai_category"]),
     }
 
 
-def dashboard_metrics(client: Client, admin: dict) -> dict:
+def dashboard_metrics(
+    client: Client, admin: dict, *, date_from: str | None = None, date_to: str | None = None
+) -> dict:
     """Overall metrics for this admin's scope (their one department, or every
-    department for a super-admin). A super-admin additionally gets
-    `by_department`: the same metric shape computed separately for each
-    department that has at least one ticket, so the dashboard can show a
-    dedicated section per team instead of just one blended aggregate.
+    department for a super-admin), optionally restricted to tickets created
+    within [date_from, date_to] (inclusive, "YYYY-MM-DD" strings from the
+    dashboard's date-range picker - see backend/routers/admin.py). A
+    super-admin additionally gets `by_department`: the same metric shape
+    computed separately for each department that has at least one ticket, so
+    the dashboard can show a dedicated section per team instead of just one
+    blended aggregate.
     """
-    tickets = list_tickets_for_admin(client, admin)
+    tickets = list_tickets_for_admin(client, admin, date_from=date_from, date_to=date_to)
     metrics = _metrics_for(tickets)
     metrics["tickets_per_department"] = _tally(tickets, lambda t: t["department"])
+    # Echoed back verbatim so the CSV/PDF export can print the range it was
+    # generated from without the frontend needing to track it separately -
+    # None means "all time" (no filter was applied).
+    metrics["date_range"] = {"from": date_from, "to": date_to}
 
     if admin["department"] is None:
         metrics["by_department"] = {

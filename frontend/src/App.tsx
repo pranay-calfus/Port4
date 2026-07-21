@@ -8,6 +8,7 @@ import { CustomerHomePage } from "./pages/CustomerHomePage";
 import { CustomerTicketPage } from "./pages/CustomerTicketPage";
 import { AdminHomePage } from "./pages/AdminHomePage";
 import { AdminTicketPage } from "./pages/AdminTicketPage";
+import { AdminTeamPage } from "./pages/AdminTeamPage";
 
 function LoginRoute() {
   const { token, identity, isBootstrapping } = useAuth();
@@ -60,6 +61,14 @@ export default function App() {
           element={
             <ProtectedRoute role="ADMIN">
               <AdminTicketPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/team"
+          element={
+            <ProtectedRoute role="ADMIN">
+              <AdminTeamPage />
             </ProtectedRoute>
           }
         />

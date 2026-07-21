@@ -1,10 +1,14 @@
 import type {
   AdminSummary,
   AdminTicketFilters,
+  ChatMessageResponse,
+  ChatTurn,
   DashboardMetrics,
+  Priority,
   TicketDetailOut,
   TicketOut,
   TokenResponse,
+  UserOut,
 } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -101,11 +105,17 @@ export function forgotPassword(email: string) {
   return request<{ message: string }>("POST", "/auth/forgot-password", { body: { email } });
 }
 
-// --- Customer tickets ---
+// --- Chat / escalation ---
 
-export function bulkCreateTickets(token: string, messages: string[]) {
-  return request<TicketDetailOut[]>("POST", "/tickets/bulk", { token, body: { messages } });
+export function sendChatMessage(token: string, message: string, history: ChatTurn[]) {
+  return request<ChatMessageResponse>("POST", "/chat/message", { token, body: { message, history } });
 }
+
+export function escalateChat(token: string, history: ChatTurn[], priority?: Priority) {
+  return request<TicketDetailOut>("POST", "/chat/escalate", { token, body: { history, priority } });
+}
+
+// --- Customer tickets ---
 
 export function listMyTickets(token: string) {
   return request<TicketOut[]>("GET", "/tickets", { token });
@@ -125,6 +135,10 @@ export function acceptSolution(token: string, ticketId: number) {
 
 export function reopenTicket(token: string, ticketId: number) {
   return request<TicketOut>("POST", `/tickets/${ticketId}/reopen`, { token });
+}
+
+export function updateTicketPriority(token: string, ticketId: number, priority: string) {
+  return request<TicketOut>("PATCH", `/tickets/${ticketId}/priority`, { token, body: { priority } });
 }
 
 // --- Admin ---
@@ -171,10 +185,27 @@ export function adminReply(token: string, ticketId: number, message: string) {
   });
 }
 
-export function adminMetrics(token: string) {
-  return request<DashboardMetrics>("GET", "/admin/metrics", { token });
+export function adminMetrics(token: string, dateRange: { date_from?: string; date_to?: string } = {}) {
+  return request<DashboardMetrics>("GET", "/admin/metrics", { token, query: dateRange });
 }
 
 export function adminListAdmins(token: string) {
   return request<AdminSummary[]>("GET", "/admin/admins", { token });
+}
+
+export function adminCreateAdmin(
+  token: string,
+  name: string,
+  email: string,
+  password: string,
+  department?: string
+) {
+  return request<UserOut>("POST", "/admin/admins", {
+    token,
+    body: { name, email, password, department: department || null },
+  });
+}
+
+export function adminDeleteAdmin(token: string, adminId: number) {
+  return request<null>("DELETE", `/admin/admins/${adminId}`, { token });
 }

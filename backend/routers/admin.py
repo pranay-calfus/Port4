@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from backend.auth import require_admin
+from backend.auth import require_admin, require_super_admin
 from backend.models import Role, TicketStatus
 from backend.schemas import (
+    AdminCreateRequest,
     AssignRequest,
     MessageCreate,
     MessageOut,
@@ -10,6 +11,7 @@ from backend.schemas import (
     StatusUpdateRequest,
     TicketDetailOut,
     TicketOut,
+    UserOut,
 )
 from backend.services import ticket_service
 from backend.supabase_client import client
@@ -31,6 +33,8 @@ def list_tickets(
     status_filter: TicketStatus | None = None,
     assigned_admin_id: int | None = None,
     search: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     admin: dict = Depends(require_admin),
 ):
     return ticket_service.list_tickets_for_admin(
@@ -41,6 +45,8 @@ def list_tickets(
         status_filter=status_filter,
         assigned_admin_id=assigned_admin_id,
         search=search,
+        date_from=date_from,
+        date_to=date_to,
     )
 
 
@@ -117,10 +123,44 @@ def delete_ticket(ticket_id: int, admin: dict = Depends(require_admin)):
 
 
 @router.get("/metrics")
-def metrics(admin: dict = Depends(require_admin)) -> dict:
-    return ticket_service.dashboard_metrics(client, admin)
+def metrics(
+    date_from: str | None = None,
+    date_to: str | None = None,
+    admin: dict = Depends(require_admin),
+) -> dict:
+    return ticket_service.dashboard_metrics(client, admin, date_from=date_from, date_to=date_to)
 
 
 @router.get("/admins", response_model=list[dict])
 def list_admins(admin: dict = Depends(require_admin)):
     return ticket_service.list_admins(client, admin)
+
+
+@router.post("/admins", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+def create_admin_account(
+    payload: AdminCreateRequest,
+    admin: dict = Depends(require_super_admin),
+):
+    try:
+        return ticket_service.create_user(
+            client,
+            name=payload.name,
+            email=payload.email,
+            password=payload.password,
+            role=Role.ADMIN,
+            department=payload.department,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+
+@router.delete("/admins/{admin_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_admin_account(admin_id: int, admin: dict = Depends(require_super_admin)):
+    if admin_id == admin["id"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot delete your own account"
+        )
+    target = ticket_service.get_user(client, admin_id)
+    if target is None or target["role"] != Role.ADMIN.value:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin not found")
+    ticket_service.delete_admin(client, target)

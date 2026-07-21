@@ -85,6 +85,36 @@ class ResolutionCheck(BaseModel):
     reasoning: str = Field(min_length=1)
 
 
+# The mid-lifecycle statuses the status-progression classifier is allowed to
+# move a ticket between - RESOLVED/CLOSED stay check_resolution's job, and a
+# ticket that's NEW or already RESOLVED/CLOSED is never handed to this
+# classifier at all (see backend.services.ticket_service._maybe_progress_status).
+StatusProgression = Literal["OPEN", "IN_PROGRESS", "PENDING_CUSTOMER", "ON_HOLD"]
+
+STATUS_PROGRESSIONS: tuple[str, ...] = StatusProgression.__args__
+
+# Required sentinel meaning "nothing has shifted enough to move the ticket
+# yet" - a required field with this sentinel, rather than an optional/
+# nullable one, matches this codebase's existing forced-tool-call schemas
+# (see CHECK_RESOLUTION_TOOL), which avoid nullable fields.
+NO_STATUS_CHANGE: Literal["NO_CHANGE"] = "NO_CHANGE"
+
+StatusProgressionOrNoChange = Literal[
+    "OPEN", "IN_PROGRESS", "PENDING_CUSTOMER", "ON_HOLD", "NO_CHANGE"
+]
+
+
+class StatusProgressionCheck(BaseModel):
+    """Output contract for the status-progression classifier (see
+    ticket_router.services.status_progression_service.check_status_progression)
+    - decides whether the conversation so far indicates the ticket should
+    move to a different mid-lifecycle status.
+    """
+
+    recommended_status: StatusProgressionOrNoChange
+    reasoning: str = Field(min_length=1)
+
+
 class TicketRequest(BaseModel):
     message: str = Field(min_length=1)
 

@@ -20,6 +20,16 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=8, max_length=200)
 
 
+class AdminCreateRequest(BaseModel):
+    # Used by a super-admin (department is None) to provision a new team
+    # account from the UI, in place of the old backend/create_admin.py CLI.
+    # Omitting department creates another super-admin.
+    name: str = Field(min_length=1, max_length=200)
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=200)
+    department: AssignedTeam | None = None
+
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1)
@@ -78,20 +88,6 @@ class EscalateRequest(BaseModel):
         if not any(turn.role == "user" for turn in value):
             raise ValueError("cannot escalate an empty conversation")
         return value
-
-
-class BulkTicketRequest(BaseModel):
-    # One entry per pasted ticket description - each becomes its own ticket,
-    # classified independently (no chat history, no shared priority).
-    messages: list[str] = Field(min_length=1)
-
-    @field_validator("messages")
-    @classmethod
-    def strip_and_drop_blank_entries(cls, value: list[str]) -> list[str]:
-        cleaned = [m.strip() for m in value if m.strip()]
-        if not cleaned:
-            raise ValueError("at least one non-empty ticket description is required")
-        return cleaned
 
 
 # --- Ticket messages / activity -----------------------------------------
@@ -165,3 +161,7 @@ class AssignRequest(BaseModel):
 class ReassignRequest(BaseModel):
     department: AssignedTeam | None = None
     priority: Priority | None = None
+
+
+class UpdatePriorityRequest(BaseModel):
+    priority: Priority

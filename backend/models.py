@@ -104,7 +104,12 @@ class Ticket(Base):
         server_default=text("'NEW'"),
         nullable=False,
     )
-    assigned_admin_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    # ondelete="SET NULL": deleting an admin account unassigns any tickets
+    # they were handling instead of blocking the delete or destroying ticket
+    # history - see backend.services.ticket_service.delete_admin.
+    assigned_admin_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_category: Mapped[str | None] = mapped_column(String(50), nullable=True)
     ai_emotion: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -145,7 +150,11 @@ class TicketMessage(Base):
         Enum(SenderType, native_enum=False), nullable=False
     )
     # NULL for AI-authored messages; set for USER/ADMIN messages.
-    sender_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    # ondelete="SET NULL": deleting an admin account keeps their past
+    # messages (sender_type stays "ADMIN") instead of blocking the delete.
+    sender_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     message: Mapped[str] = mapped_column(Text)
     # Reserved for future file-upload support - no upload UI/endpoint yet.
     attachments: Mapped[list | None] = mapped_column(JSON, nullable=True)

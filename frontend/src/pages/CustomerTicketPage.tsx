@@ -1,13 +1,21 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { acceptSolution, getMyTicket, reopenTicket, replyToTicket } from "../api/client";
+import {
+  acceptSolution,
+  getMyTicket,
+  reopenTicket,
+  replyToTicket,
+  updateTicketPriority,
+} from "../api/client";
+import { PRIORITIES } from "../api/types";
 import { useAuth } from "../context/AuthContext";
 import { statusLabel } from "../lib/colors";
+import { Accordion } from "../components/ui/Accordion";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { ErrorBanner, ErrorMessage, Spinner } from "../components/ui/Feedback";
-import { TextAreaField } from "../components/ui/FormField";
+import { SelectField, TextAreaField } from "../components/ui/FormField";
 import { TicketAiCard } from "../components/TicketAiCard";
 import { PriorityHint } from "../components/PriorityHint";
 import { ConversationView } from "../components/ConversationView";
@@ -19,6 +27,7 @@ export function CustomerTicketPage() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
   const [replyText, setReplyText] = useState("");
+  const [priorityValue, setPriorityValue] = useState("");
 
   const queryKey = ["my-ticket", id];
   const { data: ticket, isLoading, error } = useQuery({
@@ -27,10 +36,20 @@ export function CustomerTicketPage() {
     enabled: !!token && !Number.isNaN(id),
   });
 
+  useEffect(() => {
+    if (!ticket) return;
+    setPriorityValue(ticket.priority);
+  }, [ticket]);
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey });
     queryClient.invalidateQueries({ queryKey: ["my-tickets"] });
   };
+
+  const priorityMutation = useMutation({
+    mutationFn: () => updateTicketPriority(token!, id, priorityValue),
+    onSuccess: invalidate,
+  });
 
   const replyMutation = useMutation({
     mutationFn: (message: string) => replyToTicket(token!, id, message),
@@ -66,17 +85,46 @@ export function CustomerTicketPage() {
             {ticket.ticket_number} — {ticket.title}
           </h1>
           <p className="mt-1 text-sm text-ink-muted">
-            Status: <strong className="text-ink">{statusLabel(ticket.status)}</strong> · Priority:{" "}
-            <strong className="text-ink">{ticket.priority}</strong> · Department:{" "}
+            Status: <strong className="text-ink">{statusLabel(ticket.status)}</strong> · Department:{" "}
             <strong className="text-ink">{ticket.department}</strong>
           </p>
         </div>
 
         <TicketAiCard ticket={ticket} />
+
+        <div className="max-w-xs space-y-2">
+          <SelectField
+            label="Priority"
+            value={priorityValue}
+            disabled={ticket.status === "CLOSED"}
+            onChange={(e) => setPriorityValue(e.target.value)}
+          >
+            {PRIORITIES.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </SelectField>
+          <Button
+            disabled={
+              ticket.status === "CLOSED" ||
+              priorityValue === ticket.priority ||
+              priorityMutation.isPending
+            }
+            onClick={() => priorityMutation.mutate()}
+          >
+            Update Priority
+          </Button>
+          {priorityMutation.isError && (
+            <ErrorBanner message={ErrorMessage(priorityMutation.error)} />
+          )}
+        </div>
         <PriorityHint currentPriority={ticket.priority} aiPriority={ticket.ai_priority} />
 
         <ConversationView messages={ticket.messages} />
-        <TicketTimeline activity={ticket.activity} label="🕒 TIMELINE" />
+        <Accordion title="🕒 Timeline" storageKey="customer-ticket-timeline">
+          <TicketTimeline activity={ticket.activity} />
+        </Accordion>
 
         {ticket.status === "CLOSED" ? (
           <p className="text-sm text-ink-muted">

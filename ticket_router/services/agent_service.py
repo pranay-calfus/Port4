@@ -91,20 +91,63 @@ _RESOLUTION_CHECK_NUDGE = (
     "turn - only once, after you think the issue is actually handled."
 )
 
+# Appended on top of _RESOLUTION_CHECK_NUDGE, one entry per mid-lifecycle
+# status - nudges the persona to ask the specific follow-up question that
+# would let backend.services.ticket_service's status-progression classifier
+# (ticket_router.services.status_progression_service.check_status_progression)
+# detect the ticket is ready to move forward. Keyed by the ticket's current
+# status so the question actually fits where the conversation is.
+_STATUS_PROGRESSION_NUDGES: dict[str, str] = {
+    "OPEN": (
+        "The customer's issue has just come in. Ask whatever clarifying questions you need to "
+        "fully understand the problem before proposing a fix."
+    ),
+    "IN_PROGRESS": (
+        "You are actively working this issue. Ask whether the customer has tried any suggested "
+        "steps yet, and whether the issue is still occurring."
+    ),
+    "PENDING_CUSTOMER": (
+        "You are waiting on the customer. Be specific about exactly what information or "
+        "confirmation you still need from them."
+    ),
+    "ON_HOLD": (
+        "This ticket is on hold pending something on your side (an internal team, an "
+        "escalation, or a blocker). Let the customer know you're following up internally and "
+        "give them a sense of what you're waiting on."
+    ),
+}
+
+
+def _status_progression_nudge(current_status: str | None) -> str:
+    guidance = _STATUS_PROGRESSION_NUDGES.get(current_status or "")
+    if guidance is None:
+        return ""
+    return "\n\n# MOVING THIS TICKET FORWARD\n" + guidance
+
 
 def chat_with_department(
     team: AssignedTeam,
     history: list[tuple[str, str]],
     message: str,
+    current_status: str | None = None,
 ) -> str:
     """Sends one message to the conversational agent for `team`, grounded in
     that team's skills.md persona (plus a shared nudge to check in on
-    resolution, see _RESOLUTION_CHECK_NUDGE), plus the prior turns in
-    `history` (list of (role, content) tuples where role is "user" or
-    "assistant"). Returns the agent's reply text.
+    resolution, see _RESOLUTION_CHECK_NUDGE, and - when `current_status` is
+    given - a status-specific nudge to ask the right follow-up question, see
+    _STATUS_PROGRESSION_NUDGES), plus the prior turns in `history` (list of
+    (role, content) tuples where role is "user" or "assistant"). Returns the
+    agent's reply text.
+
+    `current_status` is only meaningful once a real ticket exists (it's
+    omitted for the pre-ticket chat flow, which has no status yet).
     """
-    system_prompt = load_skill_prompt(team) + _RESOLUTION_CHECK_NUDGE
-    return _run_chat(system_prompt, history, message, log_context={"team": team})
+    system_prompt = (
+        load_skill_prompt(team) + _RESOLUTION_CHECK_NUDGE + _status_progression_nudge(current_status)
+    )
+    return _run_chat(
+        system_prompt, history, message, log_context={"team": team, "status": current_status}
+    )
 
 
 def chat_with_general_agent(history: list[tuple[str, str]], message: str) -> str:

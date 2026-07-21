@@ -2,23 +2,35 @@ import re
 
 from backend.services import ticket_service
 from ticket_router.errors import AIUnavailableError
-from ticket_router.models import ResolutionCheck, TicketRouteResult
+from ticket_router.models import (
+    NO_STATUS_CHANGE,
+    ResolutionCheck,
+    StatusProgressionCheck,
+    TicketRouteResult,
+)
 
 TICKET_NUMBER_RE = re.compile(r"^TKT-(\d{5})$")
 
 
-def _ticket_number_seq(ticket_number: str) -> int:
-    match = TICKET_NUMBER_RE.match(ticket_number)
-    assert match, f"unexpected ticket_number format: {ticket_number!r}"
-    return int(match.group(1))
-
-
 def _stub_resolution(monkeypatch, resolved, reasoning="test"):
+    """Stubs both post-reply classifiers (resolution + status-progression)
+    to a deterministic no-op outcome by default, so tests that don't care
+    about status-progression aren't affected by the real AI's judgment call
+    on a follow-up message (this project's tests hit the real OpenAI API
+    unless a classifier is explicitly stubbed, per OPENAI_API_KEY in .env).
+    """
     monkeypatch.setattr(
         ticket_service,
         "check_resolution",
         lambda transcript, latest_customer_message: ResolutionCheck(
             resolved=resolved, reasoning=reasoning
+        ),
+    )
+    monkeypatch.setattr(
+        ticket_service,
+        "check_status_progression",
+        lambda transcript, latest_customer_message, current_status: StatusProgressionCheck(
+            recommended_status=NO_STATUS_CHANGE, reasoning="test"
         ),
     )
 
@@ -39,7 +51,9 @@ def _fake_route_ticket_success(monkeypatch):
     # default it to a canned reply so tests stay fast/deterministic unless a
     # test overrides it below with its own monkeypatch.
     monkeypatch.setattr(
-        ticket_service, "chat_with_department", lambda team, history, message: "Noted."
+        ticket_service,
+        "chat_with_department",
+        lambda team, history, message, current_status=None: "Noted.",
     )
 
 
@@ -143,29 +157,51 @@ def test_escalate_rejects_conversation_with_no_user_turns(client, monkeypatch):
     assert response.status_code == 422
 
 
-def test_bulk_create_tickets_creates_one_ticket_per_message(client, monkeypatch):
+def test_customer_can_update_priority(client, monkeypatch):
+    _fake_route_ticket_success(monkeypatch)  # AI suggests "High"
+    headers = _register_and_login(client)
+    ticket_id = _escalate(client, headers).json()["id"]
+
+    response = client.patch(
+        f"/tickets/{ticket_id}/priority", headers=headers, json={"priority": "Low"}
+    )
+    assert response.status_code == 200
+    ticket = response.json()
+    assert ticket["priority"] == "Low"
+    assert ticket["ai_priority"] == "High"  # AI's original suggestion is untouched
+
+    detail = client.get(f"/tickets/{ticket_id}", headers=headers).json()
+    assert "Priority Changed" in [a["event_type"] for a in detail["activity"]]
+
+
+def test_cannot_update_priority_on_closed_ticket(client, monkeypatch, db_session):
     _fake_route_ticket_success(monkeypatch)
     headers = _register_and_login(client)
+    ticket_id = _escalate(client, headers).json()["id"]
 
-    response = client.post(
-        "/tickets/bulk",
-        headers=headers,
-        json={"messages": ["First issue.", "Second issue.", ""]},
+    from backend.models import TicketStatus
+
+    ticket = ticket_service.get_ticket(db_session, ticket_id)
+    ticket_service.change_status(db_session, ticket, TicketStatus.RESOLVED)
+    ticket = ticket_service.get_ticket(db_session, ticket_id)
+    ticket_service.change_status(db_session, ticket, TicketStatus.CLOSED)
+
+    response = client.patch(
+        f"/tickets/{ticket_id}/priority", headers=headers, json={"priority": "Low"}
     )
-    assert response.status_code == 201
-    tickets = response.json()
-    assert len(tickets) == 2  # the blank entry is dropped
-    first_seq = _ticket_number_seq(tickets[0]["ticket_number"])
-    second_seq = _ticket_number_seq(tickets[1]["ticket_number"])
-    assert second_seq == first_seq + 1
-    assert all(t["ai_category"] == "Billing" for t in tickets)
+    assert response.status_code == 409
 
 
-def test_bulk_create_tickets_rejects_all_blank_messages(client):
-    headers = _register_and_login(client)
+def test_cannot_update_priority_on_another_users_ticket(client, monkeypatch):
+    _fake_route_ticket_success(monkeypatch)
+    alice_headers = _register_and_login(client, email="alice@example.com")
+    ticket_id = _escalate(client, alice_headers).json()["id"]
 
-    response = client.post("/tickets/bulk", headers=headers, json={"messages": ["  ", ""]})
-    assert response.status_code == 422
+    bob_headers = _register_and_login(client, email="bob@example.com")
+    response = client.patch(
+        f"/tickets/{ticket_id}/priority", headers=bob_headers, json={"priority": "Low"}
+    )
+    assert response.status_code == 404
 
 
 def test_user_cannot_see_another_users_ticket(client, monkeypatch):
@@ -181,7 +217,9 @@ def test_user_cannot_see_another_users_ticket(client, monkeypatch):
 def test_reply_to_resolved_ticket_reopens_to_in_progress(client, monkeypatch, db_session):
     _fake_route_ticket_success(monkeypatch)
     monkeypatch.setattr(
-        ticket_service, "chat_with_department", lambda team, history, message: "Noted."
+        ticket_service,
+        "chat_with_department",
+        lambda team, history, message, current_status=None: "Noted.",
     )
     _stub_resolution(monkeypatch, resolved=False)
     headers = _register_and_login(client)
@@ -206,7 +244,9 @@ def test_customer_reply_gets_department_agent_auto_reply(client, monkeypatch):
     monkeypatch.setattr(
         ticket_service,
         "chat_with_department",
-        lambda team, history, message: f"[{team} agent] Thanks, looking into: {message}",
+        lambda team, history, message, current_status=None: (
+            f"[{team} agent] Thanks, looking into: {message}"
+        ),
     )
     _stub_resolution(monkeypatch, resolved=False)
     headers = _register_and_login(client)
@@ -229,7 +269,7 @@ def test_bot_auto_closes_ticket_when_customer_confirms_resolution(client, monkey
     monkeypatch.setattr(
         ticket_service,
         "chat_with_department",
-        lambda team, history, message: "Glad to hear it!",
+        lambda team, history, message, current_status=None: "Glad to hear it!",
     )
     _stub_resolution(monkeypatch, resolved=True, reasoning="Customer said 'that fixed it, thanks!'")
     headers = _register_and_login(client)
@@ -255,10 +295,53 @@ def test_bot_auto_closes_ticket_when_customer_confirms_resolution(client, monkey
     assert "closed" in messages[-1]["message"].lower()
 
 
+def test_ai_progresses_status_when_conversation_indicates_it(client, monkeypatch):
+    _fake_route_ticket_success(monkeypatch)  # ticket starts OPEN
+    monkeypatch.setattr(
+        ticket_service,
+        "chat_with_department",
+        lambda team, history, message, current_status=None: "We're actively looking into this now.",
+    )
+    _stub_resolution(monkeypatch, resolved=False)
+    from ticket_router.models import StatusProgressionCheck
+
+    monkeypatch.setattr(
+        ticket_service,
+        "check_status_progression",
+        lambda transcript, latest_customer_message, current_status: StatusProgressionCheck(
+            recommended_status="IN_PROGRESS", reasoning="The agent said they are now investigating."
+        ),
+    )
+    headers = _register_and_login(client)
+    ticket_id = _escalate(client, headers).json()["id"]
+
+    client.post(f"/tickets/{ticket_id}/messages", headers=headers, json={"message": "Any update?"})
+
+    detail = client.get(f"/tickets/{ticket_id}", headers=headers).json()
+    assert detail["status"] == "IN_PROGRESS"
+    assert "AI Progressed Status" in [a["event_type"] for a in detail["activity"]]
+    assert "In Progress" in detail["messages"][-1]["message"]
+    assert detail["messages"][-1]["sender_type"] == "AI"
+
+
+def test_ai_does_not_progress_status_on_first_auto_reply(client, monkeypatch):
+    # No history yet on the very first auto-reply, so the classifier must
+    # never even be called - if it were (and unstubbed), this would hit the
+    # real OpenAI API since _stub_resolution isn't used here.
+    _fake_route_ticket_success(monkeypatch)
+    headers = _register_and_login(client)
+
+    response = _escalate(client, headers)
+    detail = response.json()
+    assert "AI Progressed Status" not in [a["event_type"] for a in detail["activity"]]
+
+
 def test_bot_does_not_auto_close_when_customer_has_not_confirmed_resolution(client, monkeypatch):
     _fake_route_ticket_success(monkeypatch)
     monkeypatch.setattr(
-        ticket_service, "chat_with_department", lambda team, history, message: "Still looking."
+        ticket_service,
+        "chat_with_department",
+        lambda team, history, message, current_status=None: "Still looking.",
     )
     _stub_resolution(monkeypatch, resolved=False, reasoning="No confirmation in the message")
     headers = _register_and_login(client)
@@ -277,7 +360,7 @@ def test_department_agent_stops_replying_once_admin_takes_over(client, monkeypat
     monkeypatch.setattr(
         ticket_service,
         "chat_with_department",
-        lambda team, history, message: calls.append(message) or "auto-reply",
+        lambda team, history, message, current_status=None: calls.append(message) or "auto-reply",
     )
     headers = _register_and_login(client)
     ticket_id = _escalate(client, headers).json()[
@@ -303,7 +386,8 @@ def test_unassigned_department_never_gets_an_agent_reply(client, monkeypatch):
     monkeypatch.setattr(
         ticket_service,
         "chat_with_department",
-        lambda team, history, message: called.append(1) or "should not be called",
+        lambda team, history, message, current_status=None: called.append(1)
+        or "should not be called",
     )
     headers = _register_and_login(client)
     ticket_id = _escalate(client, headers).json()["id"]

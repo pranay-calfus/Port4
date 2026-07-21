@@ -1,6 +1,12 @@
 from typing import Any
 
-from ticket_router.models import ASSIGNED_TEAMS, CATEGORIES, EMOTIONS, PRIORITIES
+from ticket_router.models import (
+    ASSIGNED_TEAMS,
+    CATEGORIES,
+    EMOTIONS,
+    PRIORITIES,
+    STATUS_PROGRESSIONS,
+)
 
 ROUTE_TICKET_TOOL_NAME = "route_ticket"
 
@@ -75,6 +81,43 @@ CHECK_RESOLUTION_TOOL: dict[str, Any] = {
                 },
             },
             "required": ["resolved", "reasoning"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+CHECK_STATUS_PROGRESSION_TOOL_NAME = "check_status_progression"
+
+# Forced tool call backing the status-progression classifier (see
+# ticket_router.services.status_progression_service) - lets the department
+# bot notice when the conversation clearly indicates the ticket should move
+# to a different mid-lifecycle status, and autonomously advance it, the same
+# way CHECK_RESOLUTION_TOOL lets it auto-close.
+CHECK_STATUS_PROGRESSION_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": CHECK_STATUS_PROGRESSION_TOOL_NAME,
+        "description": (
+            "Decide whether the conversation so far indicates this ticket should move to a "
+            "different status, and explain why."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "recommended_status": {
+                    "type": "string",
+                    "enum": [*STATUS_PROGRESSIONS, "NO_CHANGE"],
+                    "description": (
+                        "The ticket's next status given the conversation, or NO_CHANGE if "
+                        "nothing has shifted enough yet to justify moving it."
+                    ),
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "One sentence citing the specific signal that drove this decision.",
+                },
+            },
+            "required": ["recommended_status", "reasoning"],
             "additionalProperties": False,
         },
     },

@@ -22,7 +22,7 @@ import {
   TEAM_ORDER,
   statusLabel,
 } from "../lib/colors";
-import { Card, CardLabel } from "./ui/Card";
+import { Accordion } from "./ui/Accordion";
 
 const AXIS_COLOR = "#8b929e";
 
@@ -45,6 +45,10 @@ function CaptionLine({ series }: { series: ReturnType<typeof buildSeries> }) {
   );
 }
 
+function slugify(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
 function BarCard({
   title,
   order,
@@ -58,8 +62,7 @@ function BarCard({
 }) {
   const series = buildSeries(order, colors, counts);
   return (
-    <Card>
-      <CardLabel>{title}</CardLabel>
+    <Accordion title={title} defaultOpen storageKey={`chart-${slugify(title)}`}>
       <div style={{ width: "100%", height: series.length * 42 + 30 }}>
         <ResponsiveContainer>
           <BarChart data={series} layout="vertical" margin={{ left: 24 }}>
@@ -82,7 +85,7 @@ function BarCard({
         </ResponsiveContainer>
       </div>
       <CaptionLine series={series} />
-    </Card>
+    </Accordion>
   );
 }
 
@@ -99,8 +102,7 @@ function PieCard({
 }) {
   const series = buildSeries(order, colors, counts).filter((entry) => entry.value > 0);
   return (
-    <Card>
-      <CardLabel>{title}</CardLabel>
+    <Accordion title={title} defaultOpen storageKey={`chart-${slugify(title)}`}>
       <div style={{ width: "100%", height: 220 }}>
         <ResponsiveContainer>
           <PieChart>
@@ -120,7 +122,7 @@ function PieCard({
         </ResponsiveContainer>
       </div>
       <CaptionLine series={buildSeries(order, colors, counts)} />
-    </Card>
+    </Accordion>
   );
 }
 

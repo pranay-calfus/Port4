@@ -1,10 +1,10 @@
 import type { ActivityOut } from "../api/types";
 import { formatDateTime } from "../lib/format";
 
-export function TicketTimeline({ activity, label = "TIMELINE" }: { activity: ActivityOut[]; label?: string }) {
+export function TicketTimeline({ activity, label }: { activity: ActivityOut[]; label?: string }) {
   return (
     <div>
-      <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-muted">{label}</p>
+      {label && <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-muted">{label}</p>}
       <ol className="space-y-4 border-l border-surface-border pl-4">
         {activity.map((entry) => (
           <li key={entry.id} className="relative">

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { initials } from "../lib/initials";
 import { Button } from "./ui/Button";
@@ -18,6 +19,7 @@ export function ProfileMenu() {
 
   if (!identity) return null;
 
+  const isSuperAdmin = identity.role === "ADMIN" && identity.department == null;
   const scopeLabel =
     identity.role === "ADMIN"
       ? identity.department
@@ -39,6 +41,15 @@ export function ProfileMenu() {
           <p className="font-semibold text-ink">{identity.name}</p>
           <p className="text-xs text-ink-muted">{identity.email}</p>
           <p className="mt-1 text-xs text-ink-muted">{scopeLabel}</p>
+          {isSuperAdmin && (
+            <Link
+              to="/admin/team"
+              onClick={() => setOpen(false)}
+              className="mt-2 block text-xs text-accent hover:underline"
+            >
+              Manage Team
+            </Link>
+          )}
           <hr className="my-3 border-surface-border" />
           <Button variant="primary" className="w-full" onClick={logout}>
             Log Out

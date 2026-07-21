@@ -22,6 +22,16 @@ export const TICKET_STATUSES: TicketStatus[] = [
 export type Priority = "High" | "Medium" | "Low";
 export const PRIORITIES: Priority[] = ["High", "Medium", "Low"];
 
+export interface ChatTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatMessageResponse {
+  reply: string;
+  history: ChatTurn[];
+}
+
 export type Emotion = "Neutral" | "Worried" | "Frustrated" | "Angry" | "Disappointed";
 
 export const EMOTION_EMOJI: Record<Emotion, string> = {
@@ -157,11 +167,18 @@ export interface DepartmentMetrics {
   tickets_per_status: Record<string, number>;
   tickets_per_priority: Record<string, number>;
   tickets_per_emotion: Record<string, number>;
+  tickets_per_category: Record<string, number>;
   tickets_per_department?: Record<string, number>;
+}
+
+export interface DateRange {
+  from: string | null;
+  to: string | null;
 }
 
 export interface DashboardMetrics extends DepartmentMetrics {
   by_department?: Record<string, DepartmentMetrics>;
+  date_range: DateRange;
 }
 
 export interface AdminTicketFilters {
@@ -170,5 +187,7 @@ export interface AdminTicketFilters {
   status_filter?: string;
   assigned_admin_id?: number;
   search?: string;
+  date_from?: string;
+  date_to?: string;
   [key: string]: string | number | undefined;
 }

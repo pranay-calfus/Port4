@@ -73,3 +73,11 @@ def require_role(role: Role):
 
 require_user = require_role(Role.USER)
 require_admin = require_role(Role.ADMIN)
+
+
+def require_super_admin(admin: dict = Depends(require_admin)) -> dict:
+    if admin["department"] is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Super-admin access required"
+        )
+    return admin

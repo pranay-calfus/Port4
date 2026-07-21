@@ -179,7 +179,7 @@ function AdminLoginForm() {
   return (
     <Card>
       <p className="mb-4 text-xs text-ink-muted">
-        Admin accounts are provisioned out-of-band - see backend/create_admin.py.
+        Super adminmust be configured from backend check: backend/create_admin.py.
       </p>
       <form onSubmit={handleSubmit} className="space-y-4">
         <TextField

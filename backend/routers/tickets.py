@@ -1,7 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from backend.auth import require_user
-from backend.schemas import BulkTicketRequest, MessageCreate, MessageOut, TicketDetailOut, TicketOut
+from backend.models import TicketStatus
+from backend.schemas import (
+    MessageCreate,
+    MessageOut,
+    TicketDetailOut,
+    TicketOut,
+    UpdatePriorityRequest,
+)
 from backend.services import ticket_service
 from backend.supabase_client import client
 
@@ -18,24 +25,6 @@ def _get_owned_ticket(ticket_id: int, user: dict) -> dict:
 @router.get("", response_model=list[TicketOut])
 def list_my_tickets(user: dict = Depends(require_user)) -> list[dict]:
     return ticket_service.list_tickets_for_user(client, user)
-
-
-# Registered before "/{ticket_id}" - otherwise FastAPI would try to parse
-# the literal path segment "bulk" as that int path parameter and 422 first.
-@router.post("/bulk", response_model=list[TicketDetailOut], status_code=status.HTTP_201_CREATED)
-def bulk_create_tickets(
-    payload: BulkTicketRequest,
-    user: dict = Depends(require_user),
-) -> list[dict]:
-    """Creates one ticket per pasted description, each classified
-    independently via the same escalate_to_ticket() pipeline as the
-    chat-escalation flow (just with a single-turn "history" instead of a
-    real conversation).
-    """
-    return [
-        ticket_service.escalate_to_ticket(client, user, [("user", message)])
-        for message in payload.messages
-    ]
 
 
 @router.get("/{ticket_id}", response_model=TicketDetailOut)
@@ -75,3 +64,17 @@ def reopen_ticket(ticket_id: int, user: dict = Depends(require_user)):
         return ticket_service.reopen_ticket(client, ticket)
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+
+@router.patch("/{ticket_id}/priority", response_model=TicketOut)
+def update_ticket_priority(
+    ticket_id: int,
+    payload: UpdatePriorityRequest,
+    user: dict = Depends(require_user),
+):
+    ticket = _get_owned_ticket(ticket_id, user)
+    if ticket["status"] == TicketStatus.CLOSED.value:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Cannot change priority on a closed ticket"
+        )
+    return ticket_service.update_priority(client, ticket, payload.priority)

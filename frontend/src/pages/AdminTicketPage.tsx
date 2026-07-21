@@ -13,6 +13,7 @@ import {
 import { DEPARTMENTS, PRIORITIES, TICKET_STATUSES } from "../api/types";
 import { useAuth } from "../context/AuthContext";
 import { statusLabel } from "../lib/colors";
+import { Accordion } from "../components/ui/Accordion";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { ErrorBanner, ErrorMessage, Spinner } from "../components/ui/Feedback";
@@ -123,7 +124,9 @@ export function AdminTicketPage() {
         <TicketAiCard ticket={ticket} />
         <PriorityHint currentPriority={ticket.priority} aiPriority={ticket.ai_priority} />
 
-        <ManualRoutingPanel ticket={ticket} />
+        <Accordion title="Manual Routing Comparison" storageKey="manual-routing-panel">
+          <ManualRoutingPanel ticket={ticket} />
+        </Accordion>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div className="space-y-2">
@@ -204,7 +207,9 @@ export function AdminTicketPage() {
         </div>
 
         <ConversationView messages={ticket.messages} />
-        <TicketTimeline activity={ticket.activity} />
+        <Accordion title="Timeline" storageKey="admin-ticket-timeline">
+          <TicketTimeline activity={ticket.activity} />
+        </Accordion>
 
         {ticket.status === "CLOSED" ? (
           <p className="text-sm text-ink-muted">This ticket is closed.</p>

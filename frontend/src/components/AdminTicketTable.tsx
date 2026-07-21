@@ -6,8 +6,8 @@ import { PRIORITIES, TICKET_STATUSES, type TicketOut } from "../api/types";
 import { useAuth } from "../context/AuthContext";
 import { statusLabel } from "../lib/colors";
 import { formatDateTime } from "../lib/format";
+import { Accordion } from "./ui/Accordion";
 import { Button } from "./ui/Button";
-import { Card } from "./ui/Card";
 import { ErrorBanner, ErrorMessage, Spinner } from "./ui/Feedback";
 import { Modal } from "./ui/Modal";
 
@@ -48,7 +48,7 @@ export function AdminTicketTable({ departmentFilter }: { departmentFilter?: stri
           switch.
         </p>
       )}
-      <Card>
+      <Accordion title="Filters" defaultOpen storageKey="admin-ticket-filters">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div>
             <label className="mb-1.5 block text-sm text-ink-muted">Priority</label>
@@ -90,7 +90,7 @@ export function AdminTicketTable({ departmentFilter }: { departmentFilter?: stri
             />
           </div>
         </div>
-      </Card>
+      </Accordion>
 
       {isLoading && <Spinner label="Loading tickets…" />}
       {error && <ErrorBanner message={ErrorMessage(error)} />}
