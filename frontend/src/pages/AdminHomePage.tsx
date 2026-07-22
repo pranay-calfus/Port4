@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import { AdminTicketTable } from "../components/AdminTicketTable";
 import { StatRow } from "../components/StatRow";
 import { MetricCharts } from "../components/MetricCharts";
+import { ThemeCharts } from "../components/ThemeCharts";
 import { buildDashboardCsv, downloadCsv } from "../lib/exportCsv";
 import { downloadBlob, generateDashboardPdf } from "../lib/exportPdf";
 import { Button } from "../components/ui/Button";
@@ -121,8 +122,9 @@ function DashboardTab({ teamFilter, onTeamChange }: { teamFilter: string; onTeam
       </div>
       {exportError && <ErrorBanner message={exportError} />}
       <StatRow metrics={activeMetrics} />
-      <div ref={chartsRef}>
+      <div ref={chartsRef} className="space-y-4">
         <MetricCharts metrics={activeMetrics} showDepartment={isSuperAdmin && teamFilter === "All Teams"} />
+        <ThemeCharts topThemes={activeMetrics.top_themes} trend={activeMetrics.theme_trend} />
       </div>
     </div>
   );

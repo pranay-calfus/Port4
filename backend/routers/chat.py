@@ -5,14 +5,38 @@ from backend.schemas import (
     ChatMessageRequest,
     ChatMessageResponse,
     ChatTurn,
+    EscalateFeedbackResult,
     EscalateRequest,
-    TicketDetailOut,
+    EscalateResponse,
+    EscalateTicketResult,
 )
-from backend.services import ticket_service
+from backend.services import feedback_service, ticket_service
+from backend.services.ticket_service import _transcript_to_text
 from backend.supabase_client import client
 from ticket_router.errors import AppError
+from ticket_router.services.submission_type_service import classify_submission_type
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+
+def _classify_and_dispatch(
+    user: dict, history_tuples: list[tuple[str, str]], priority: str | None = None
+) -> EscalateResponse:
+    """The single entry point for turning a raised submission into either a
+    support ticket or a piece of customer feedback. Runs the fail-soft
+    submission-type classifier first (defaults to SUPPORT_ISSUE on any AI
+    failure, so nothing is silently dropped), then dispatches to the
+    matching peer service. escalate_to_ticket() itself is untouched by this
+    branch, so the Support Issue path is exactly what it was before
+    Customer Feedback existed.
+    """
+    transcript = _transcript_to_text(history_tuples)
+    kind = classify_submission_type(transcript)
+    if kind.submission_type == "CUSTOMER_FEEDBACK":
+        feedback = feedback_service.create_feedback_from_chat(client, user, history_tuples)
+        return EscalateFeedbackResult(feedback=feedback)
+    ticket = ticket_service.escalate_to_ticket(client, user, history_tuples, user_priority=priority)
+    return EscalateTicketResult(ticket=ticket)
 
 
 @router.post("/message", response_model=ChatMessageResponse)
@@ -36,12 +60,10 @@ def send_message(
     return ChatMessageResponse(reply=reply, history=updated_history)
 
 
-@router.post("/escalate", response_model=TicketDetailOut, status_code=status.HTTP_201_CREATED)
+@router.post("/escalate", response_model=EscalateResponse, status_code=status.HTTP_201_CREATED)
 def escalate(
     payload: EscalateRequest,
     user: dict = Depends(require_user),
 ):
     history_tuples = [(turn.role, turn.content) for turn in payload.history]
-    return ticket_service.escalate_to_ticket(
-        client, user, history_tuples, user_priority=payload.priority
-    )
+    return _classify_and_dispatch(user, history_tuples, payload.priority)

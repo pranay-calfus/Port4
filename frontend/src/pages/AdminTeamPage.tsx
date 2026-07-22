@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { adminCreateAdmin, adminDeleteAdmin, adminListAdmins } from "../api/client";
-import { ASSIGNED_TEAMS } from "../api/types";
+import { adminCreateAdmin, adminDeleteAdmin, adminListTeamAccounts } from "../api/client";
+import { ASSIGNED_TEAMS, type Role } from "../api/types";
 import { useAuth } from "../context/AuthContext";
 import { Button } from "../components/ui/Button";
 import { Card, CardLabel } from "../components/ui/Card";
@@ -19,23 +19,33 @@ export function AdminTeamPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [department, setDepartment] = useState("");
+  const [role, setRole] = useState<Role>("ADMIN");
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
   const [justDeletedName, setJustDeletedName] = useState("");
 
   const { data: admins, isLoading, error } = useQuery({
-    queryKey: ["admin-admins"],
-    queryFn: () => adminListAdmins(token!),
+    queryKey: ["admin-team-accounts"],
+    queryFn: () => adminListTeamAccounts(token!),
     enabled: !!token,
   });
 
   const createMutation = useMutation({
-    mutationFn: () => adminCreateAdmin(token!, name, email, password, department || undefined),
+    mutationFn: () =>
+      adminCreateAdmin(
+        token!,
+        name,
+        email,
+        password,
+        role === "PRODUCT_CX" ? undefined : department || undefined,
+        role
+      ),
     onSuccess: () => {
       setName("");
       setEmail("");
       setPassword("");
       setDepartment("");
-      queryClient.invalidateQueries({ queryKey: ["admin-admins"] });
+      setRole("ADMIN");
+      queryClient.invalidateQueries({ queryKey: ["admin-team-accounts"] });
     },
   });
 
@@ -46,7 +56,7 @@ export function AdminTeamPage() {
     onSuccess: () => {
       setJustDeletedName(deleteTarget?.name ?? "");
       setDeleteTargetId(null);
-      queryClient.invalidateQueries({ queryKey: ["admin-admins"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-team-accounts"] });
     },
   });
 
@@ -79,17 +89,27 @@ export function AdminTeamPage() {
                 onChange={(e) => setPassword(e.target.value)}
               />
               <SelectField
-                label="Department"
-                value={department}
-                onChange={(e) => setDepartment(e.target.value)}
+                label="Role"
+                value={role}
+                onChange={(e) => setRole(e.target.value as Role)}
               >
-                <option value="">— none (super-admin) —</option>
-                {ASSIGNED_TEAMS.map((team) => (
-                  <option key={team} value={team}>
-                    {team}
-                  </option>
-                ))}
+                <option value="ADMIN">Admin / Team</option>
+                <option value="PRODUCT_CX">Product &amp; CX</option>
               </SelectField>
+              {role === "ADMIN" && (
+                <SelectField
+                  label="Department"
+                  value={department}
+                  onChange={(e) => setDepartment(e.target.value)}
+                >
+                  <option value="">— none (super-admin) —</option>
+                  {ASSIGNED_TEAMS.map((team) => (
+                    <option key={team} value={team}>
+                      {team}
+                    </option>
+                  ))}
+                </SelectField>
+              )}
             </div>
             <Button
               variant="primary"
@@ -123,7 +143,11 @@ export function AdminTeamPage() {
                       <p className="text-ink-muted">{admin.email}</p>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="text-ink-muted">{admin.department ?? "super-admin"}</span>
+                      <span className="text-ink-muted">
+                        {admin.role === "PRODUCT_CX"
+                          ? "Product & CX"
+                          : (admin.department ?? "super-admin")}
+                      </span>
                       <Button
                         variant="danger"
                         disabled={admin.id === identity?.id}

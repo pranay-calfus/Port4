@@ -2,7 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from backend.auth import require_user
 from backend.models import TicketStatus
+from backend.routers.chat import _classify_and_dispatch
 from backend.schemas import (
+    BulkTicketRequest,
+    EscalateResponse,
     MessageCreate,
     MessageOut,
     TicketDetailOut,
@@ -13,6 +16,14 @@ from backend.services import ticket_service
 from backend.supabase_client import client
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
+
+
+@router.post("/bulk", response_model=list[EscalateResponse], status_code=status.HTTP_201_CREATED)
+def bulk_create(payload: BulkTicketRequest, user: dict = Depends(require_user)):
+    # Each message goes through the same classify-then-dispatch path as a
+    # single chat escalation, so one batch can yield a mix of tickets and
+    # feedback rows.
+    return [_classify_and_dispatch(user, [("user", message)]) for message in payload.messages]
 
 
 def _get_owned_ticket(ticket_id: int, user: dict) -> dict:

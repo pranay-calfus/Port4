@@ -1,6 +1,6 @@
 import type { TicketDetailOut } from "../api/types";
 import { EMOTION_EMOJI } from "../api/types";
-import { EMOTION_COLORS, PRIORITY_COLORS } from "../lib/colors";
+import { EMOTION_COLORS, PRIORITY_COLORS, themeColor } from "../lib/colors";
 import { formatDateTime } from "../lib/format";
 import { Badge } from "./ui/Badge";
 import { Card, CardLabel } from "./ui/Card";
@@ -21,7 +21,7 @@ export function TicketAiCard({ ticket }: { ticket: TicketDetailOut }) {
 
   return (
     <div className="space-y-3 border-l-2 border-l-green-500 pl-4">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardLabel>Category</CardLabel>
           <p className="font-semibold text-ink">{ticket.ai_category}</p>
@@ -38,6 +38,10 @@ export function TicketAiCard({ ticket }: { ticket: TicketDetailOut }) {
               label={`${EMOTION_EMOJI[ticket.ai_emotion as keyof typeof EMOTION_EMOJI] ?? ""} ${ticket.ai_emotion}`}
             />
           )}
+        </Card>
+        <Card>
+          <CardLabel>Theme</CardLabel>
+          {ticket.theme && <Badge color={themeColor(ticket.theme)} label={ticket.theme} />}
         </Card>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

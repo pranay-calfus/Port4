@@ -1,15 +1,33 @@
 import re
 
+from backend.routers import chat as chat_router
 from backend.services import ticket_service
 from ticket_router.errors import AIUnavailableError
 from ticket_router.models import (
     NO_STATUS_CHANGE,
     ResolutionCheck,
     StatusProgressionCheck,
+    SubmissionTypeResult,
     TicketRouteResult,
 )
 
 TICKET_NUMBER_RE = re.compile(r"^TKT-(\d{5})$")
+
+
+def _stub_submission_type_as_issue(monkeypatch):
+    """Every test in this file is exclusively about the support-ticket
+    workflow, so the submission-type classifier (the first thing
+    _classify_and_dispatch calls) is always stubbed to SUPPORT_ISSUE - this
+    keeps these tests deterministic/fast instead of depending on a real
+    OpenAI call to classify plainly-support-shaped test messages.
+    """
+    monkeypatch.setattr(
+        chat_router,
+        "classify_submission_type",
+        lambda transcript: SubmissionTypeResult(
+            submission_type="SUPPORT_ISSUE", reasoning="test"
+        ),
+    )
 
 
 def _stub_resolution(monkeypatch, resolved, reasoning="test"):
@@ -36,11 +54,13 @@ def _stub_resolution(monkeypatch, resolved, reasoning="test"):
 
 
 def _fake_route_ticket_success(monkeypatch):
+    _stub_submission_type_as_issue(monkeypatch)
     result = TicketRouteResult(
         category="Billing",
         priority="High",
         assignedTeam="Billing Team",
         emotion="Frustrated",
+        theme="Billing Error",
         reasoning="Customer reports a duplicate charge on their invoice.",
         confidence=0.95,
     )
@@ -58,6 +78,8 @@ def _fake_route_ticket_success(monkeypatch):
 
 
 def _fake_route_ticket_failure(monkeypatch):
+    _stub_submission_type_as_issue(monkeypatch)
+
     def _raise(message):
         raise AIUnavailableError("AI service is currently unavailable.")
 
@@ -83,12 +105,15 @@ def test_escalate_creates_ticket_with_ai_categorization(client, monkeypatch):
 
     response = _escalate(client, headers)
     assert response.status_code == 201
-    ticket = response.json()
+    body = response.json()
+    assert body["type"] == "ticket"
+    ticket = body["ticket"]
     assert TICKET_NUMBER_RE.match(ticket["ticket_number"])
     assert ticket["status"] == "OPEN"
     assert ticket["department"] == "Billing Team"
     assert ticket["priority"] == "High"
     assert ticket["ai_category"] == "Billing"
+    assert ticket["theme"] == "Billing Error"
     assert ticket["ai_emotion"] == "Frustrated"
     assert ticket["ai_processing_ms"] is not None and ticket["ai_processing_ms"] >= 0
     assert [a["event_type"] for a in ticket["activity"]] == [
@@ -107,7 +132,7 @@ def test_escalate_still_creates_ticket_when_ai_fails(client, monkeypatch):
 
     response = _escalate(client, headers)
     assert response.status_code == 201
-    ticket = response.json()
+    ticket = response.json()["ticket"]
     assert ticket["status"] == "NEW"
     assert ticket["department"] == "Unassigned"
     assert ticket["ai_category"] is None
@@ -130,7 +155,7 @@ def test_escalate_with_explicit_priority_overrides_ai_suggestion(client, monkeyp
         },
     )
     assert response.status_code == 201
-    ticket = response.json()
+    ticket = response.json()["ticket"]
     assert ticket["priority"] == "Low"
     assert ticket["ai_priority"] == "High"
 
@@ -140,7 +165,7 @@ def test_escalate_without_explicit_priority_uses_ai_suggestion(client, monkeypat
     headers = _register_and_login(client)
 
     response = _escalate(client, headers)
-    ticket = response.json()
+    ticket = response.json()["ticket"]
     assert ticket["priority"] == "High"
     assert ticket["ai_priority"] == "High"
 
@@ -160,7 +185,7 @@ def test_escalate_rejects_conversation_with_no_user_turns(client, monkeypatch):
 def test_customer_can_update_priority(client, monkeypatch):
     _fake_route_ticket_success(monkeypatch)  # AI suggests "High"
     headers = _register_and_login(client)
-    ticket_id = _escalate(client, headers).json()["id"]
+    ticket_id = _escalate(client, headers).json()["ticket"]["id"]
 
     response = client.patch(
         f"/tickets/{ticket_id}/priority", headers=headers, json={"priority": "Low"}
@@ -177,7 +202,7 @@ def test_customer_can_update_priority(client, monkeypatch):
 def test_cannot_update_priority_on_closed_ticket(client, monkeypatch, db_session):
     _fake_route_ticket_success(monkeypatch)
     headers = _register_and_login(client)
-    ticket_id = _escalate(client, headers).json()["id"]
+    ticket_id = _escalate(client, headers).json()["ticket"]["id"]
 
     from backend.models import TicketStatus
 
@@ -195,7 +220,7 @@ def test_cannot_update_priority_on_closed_ticket(client, monkeypatch, db_session
 def test_cannot_update_priority_on_another_users_ticket(client, monkeypatch):
     _fake_route_ticket_success(monkeypatch)
     alice_headers = _register_and_login(client, email="alice@example.com")
-    ticket_id = _escalate(client, alice_headers).json()["id"]
+    ticket_id = _escalate(client, alice_headers).json()["ticket"]["id"]
 
     bob_headers = _register_and_login(client, email="bob@example.com")
     response = client.patch(
@@ -207,7 +232,7 @@ def test_cannot_update_priority_on_another_users_ticket(client, monkeypatch):
 def test_user_cannot_see_another_users_ticket(client, monkeypatch):
     _fake_route_ticket_success(monkeypatch)
     alice_headers = _register_and_login(client, email="alice@example.com")
-    ticket_id = _escalate(client, alice_headers).json()["id"]
+    ticket_id = _escalate(client, alice_headers).json()["ticket"]["id"]
 
     bob_headers = _register_and_login(client, email="bob@example.com")
     response = client.get(f"/tickets/{ticket_id}", headers=bob_headers)
@@ -223,7 +248,7 @@ def test_reply_to_resolved_ticket_reopens_to_in_progress(client, monkeypatch, db
     )
     _stub_resolution(monkeypatch, resolved=False)
     headers = _register_and_login(client)
-    ticket_id = _escalate(client, headers).json()["id"]
+    ticket_id = _escalate(client, headers).json()["ticket"]["id"]
 
     from backend.models import TicketStatus
 
@@ -250,7 +275,7 @@ def test_customer_reply_gets_department_agent_auto_reply(client, monkeypatch):
     )
     _stub_resolution(monkeypatch, resolved=False)
     headers = _register_and_login(client)
-    ticket_id = _escalate(client, headers).json()["id"]
+    ticket_id = _escalate(client, headers).json()["ticket"]["id"]
 
     response = client.post(
         f"/tickets/{ticket_id}/messages", headers=headers, json={"message": "Any update?"}
@@ -273,7 +298,7 @@ def test_bot_auto_closes_ticket_when_customer_confirms_resolution(client, monkey
     )
     _stub_resolution(monkeypatch, resolved=True, reasoning="Customer said 'that fixed it, thanks!'")
     headers = _register_and_login(client)
-    ticket_id = _escalate(client, headers).json()["id"]
+    ticket_id = _escalate(client, headers).json()["ticket"]["id"]
 
     response = client.post(
         f"/tickets/{ticket_id}/messages",
@@ -313,7 +338,7 @@ def test_ai_progresses_status_when_conversation_indicates_it(client, monkeypatch
         ),
     )
     headers = _register_and_login(client)
-    ticket_id = _escalate(client, headers).json()["id"]
+    ticket_id = _escalate(client, headers).json()["ticket"]["id"]
 
     client.post(f"/tickets/{ticket_id}/messages", headers=headers, json={"message": "Any update?"})
 
@@ -332,7 +357,7 @@ def test_ai_does_not_progress_status_on_first_auto_reply(client, monkeypatch):
     headers = _register_and_login(client)
 
     response = _escalate(client, headers)
-    detail = response.json()
+    detail = response.json()["ticket"]
     assert "AI Progressed Status" not in [a["event_type"] for a in detail["activity"]]
 
 
@@ -345,7 +370,7 @@ def test_bot_does_not_auto_close_when_customer_has_not_confirmed_resolution(clie
     )
     _stub_resolution(monkeypatch, resolved=False, reasoning="No confirmation in the message")
     headers = _register_and_login(client)
-    ticket_id = _escalate(client, headers).json()["id"]
+    ticket_id = _escalate(client, headers).json()["ticket"]["id"]
 
     client.post(f"/tickets/{ticket_id}/messages", headers=headers, json={"message": "Any update?"})
 
@@ -363,7 +388,7 @@ def test_department_agent_stops_replying_once_admin_takes_over(client, monkeypat
         lambda team, history, message, current_status=None: calls.append(message) or "auto-reply",
     )
     headers = _register_and_login(client)
-    ticket_id = _escalate(client, headers).json()[
+    ticket_id = _escalate(client, headers).json()["ticket"][
         "id"
     ]  # triggers the ticket's own initial auto-reply
 
@@ -390,7 +415,7 @@ def test_unassigned_department_never_gets_an_agent_reply(client, monkeypatch):
         or "should not be called",
     )
     headers = _register_and_login(client)
-    ticket_id = _escalate(client, headers).json()["id"]
+    ticket_id = _escalate(client, headers).json()["ticket"]["id"]
 
     client.post(f"/tickets/{ticket_id}/messages", headers=headers, json={"message": "Hello?"})
     assert called == []
@@ -399,7 +424,7 @@ def test_unassigned_department_never_gets_an_agent_reply(client, monkeypatch):
 def test_repeated_same_status_update_does_not_add_activity_entry(client, monkeypatch, db_session):
     _fake_route_ticket_success(monkeypatch)
     headers = _register_and_login(client)
-    ticket_id = _escalate(client, headers).json()["id"]
+    ticket_id = _escalate(client, headers).json()["ticket"]["id"]
 
     from backend.models import TicketStatus
 
@@ -415,7 +440,7 @@ def test_repeated_same_status_update_does_not_add_activity_entry(client, monkeyp
 def test_accept_solution_requires_resolved_status(client, monkeypatch):
     _fake_route_ticket_success(monkeypatch)
     headers = _register_and_login(client)
-    ticket_id = _escalate(client, headers).json()["id"]
+    ticket_id = _escalate(client, headers).json()["ticket"]["id"]
 
     response = client.post(f"/tickets/{ticket_id}/accept-solution", headers=headers)
     assert response.status_code == 409
@@ -424,7 +449,7 @@ def test_accept_solution_requires_resolved_status(client, monkeypatch):
 def test_reply_to_closed_ticket_is_rejected(client, monkeypatch, db_session):
     _fake_route_ticket_success(monkeypatch)
     headers = _register_and_login(client)
-    ticket_id = _escalate(client, headers).json()["id"]
+    ticket_id = _escalate(client, headers).json()["ticket"]["id"]
 
     from backend.models import TicketStatus
 

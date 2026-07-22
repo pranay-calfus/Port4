@@ -15,6 +15,7 @@ def _fake_classification(team="Billing Team"):
         priority="High",
         assignedTeam=team,
         emotion="Frustrated",
+        theme="Billing Error",
         reasoning="test",
         confidence=0.9,
     )

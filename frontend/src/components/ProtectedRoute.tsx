@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import type { Role } from "../api/types";
+import { homePathForRole } from "../lib/roles";
 import { Spinner } from "./ui/Feedback";
 
 export function ProtectedRoute({ role, children }: { role: Role; children: ReactNode }) {
@@ -16,7 +17,7 @@ export function ProtectedRoute({ role, children }: { role: Role; children: React
   }
 
   if (!token || !identity) return <Navigate to="/login" replace />;
-  if (identity.role !== role) return <Navigate to={identity.role === "ADMIN" ? "/admin" : "/"} replace />;
+  if (identity.role !== role) return <Navigate to={homePathForRole(identity.role)} replace />;
 
   return <>{children}</>;
 }

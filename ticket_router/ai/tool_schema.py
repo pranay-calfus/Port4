@@ -4,8 +4,11 @@ from ticket_router.models import (
     ASSIGNED_TEAMS,
     CATEGORIES,
     EMOTIONS,
+    FEEDBACK_CATEGORIES,
+    FEEDBACK_SENTIMENTS,
     PRIORITIES,
     STATUS_PROGRESSIONS,
+    SUBMISSION_TYPES,
 )
 
 ROUTE_TICKET_TOOL_NAME = "route_ticket"
@@ -29,6 +32,15 @@ ROUTE_TICKET_TOOL: dict[str, Any] = {
                     "enum": list(EMOTIONS),
                     "description": "The customer's dominant emotional tone in the message.",
                 },
+                "theme": {
+                    "type": "string",
+                    "description": (
+                        "A short (2-4 word) label for the recurring problem/topic pattern this "
+                        "ticket belongs to, distinct from category - e.g. 'Login Issues', "
+                        "'Payment Failure'. Not restricted to a fixed list, but prefer general, "
+                        "reusable phrasing over hyper-specific one-off wording."
+                    ),
+                },
                 "reasoning": {
                     "type": "string",
                     "description": "One sentence justifying the decision, citing a specific signal from the ticket.",
@@ -40,6 +52,7 @@ ROUTE_TICKET_TOOL: dict[str, Any] = {
                 "priority",
                 "assignedTeam",
                 "emotion",
+                "theme",
                 "reasoning",
                 "confidence",
             ],
@@ -118,6 +131,98 @@ CHECK_STATUS_PROGRESSION_TOOL: dict[str, Any] = {
                 },
             },
             "required": ["recommended_status", "reasoning"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+CLASSIFY_SUBMISSION_TYPE_TOOL_NAME = "classify_submission_type"
+
+# Forced tool call backing the first classifier run on any raised
+# submission (see ticket_router.services.submission_type_service) - decides
+# whether the submission is a Support Issue (should become a ticket) or
+# Customer Feedback (should not).
+CLASSIFY_SUBMISSION_TYPE_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": CLASSIFY_SUBMISSION_TYPE_TOOL_NAME,
+        "description": (
+            "Classify whether a customer submission is a support issue that needs "
+            "resolution, or unsolicited customer feedback."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "submission_type": {
+                    "type": "string",
+                    "enum": list(SUBMISSION_TYPES),
+                    "description": (
+                        "SUPPORT_ISSUE for a problem, request, question, or complaint that "
+                        "needs individual resolution. CUSTOMER_FEEDBACK for commentary, "
+                        "opinion, praise, or a suggestion with no expectation of individual "
+                        "resolution."
+                    ),
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "One sentence citing the specific signal that drove this decision.",
+                },
+            },
+            "required": ["submission_type", "reasoning"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+CLASSIFY_FEEDBACK_TOOL_NAME = "classify_feedback"
+
+# Forced tool call backing the feedback classifier (see
+# ticket_router.services.feedback_classification_service) - the same
+# forced-tool-call shape as ROUTE_TICKET_TOOL, but for the feedback
+# dimensions (sentiment/category/team/summary) instead of routing ones.
+CLASSIFY_FEEDBACK_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": CLASSIFY_FEEDBACK_TOOL_NAME,
+        "description": "Classify a piece of customer feedback and summarize it.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "sentiment": {"type": "string", "enum": list(FEEDBACK_SENTIMENTS)},
+                "category": {"type": "string", "enum": list(FEEDBACK_CATEGORIES)},
+                "assignedTeam": {
+                    "type": "string",
+                    "enum": list(ASSIGNED_TEAMS),
+                    "description": "The internal team this feedback is most relevant to.",
+                },
+                "theme": {
+                    "type": "string",
+                    "description": (
+                        "A short (2-4 word) label for the recurring problem/topic pattern this "
+                        "feedback belongs to, distinct from category - e.g. 'UI Improvements', "
+                        "'Positive Experience'. Not restricted to a fixed list, but prefer "
+                        "general, reusable phrasing over hyper-specific one-off wording."
+                    ),
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "A one-sentence AI-generated summary of the feedback.",
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "One sentence justifying the sentiment/category/team choices.",
+                },
+                "confidence": {"type": "number", "description": "A number between 0 and 1."},
+            },
+            "required": [
+                "sentiment",
+                "category",
+                "assignedTeam",
+                "theme",
+                "summary",
+                "reasoning",
+                "confidence",
+            ],
             "additionalProperties": False,
         },
     },

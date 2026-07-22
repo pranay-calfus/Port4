@@ -1,10 +1,24 @@
 import type {
   AdminSummary,
   AdminTicketFilters,
+  AnswerValue,
   ChatMessageResponse,
   ChatTurn,
   DashboardMetrics,
+  EscalateResponse,
+  FeedbackDetailOut,
+  FeedbackFilters,
+  FeedbackMetrics,
+  FeedbackOut,
   Priority,
+  Role,
+  Survey,
+  SurveyAnalytics,
+  SurveyDetail,
+  SurveyQuestionInput,
+  SurveyResponse,
+  SurveyResponseFilters,
+  TeamAccountSummary,
   TicketDetailOut,
   TicketOut,
   TokenResponse,
@@ -97,6 +111,10 @@ export function adminLogin(email: string, password: string) {
   return request<TokenResponse>("POST", "/admin/login", { body: { email, password } });
 }
 
+export function productCxLogin(email: string, password: string) {
+  return request<TokenResponse>("POST", "/product-cx/login", { body: { email, password } });
+}
+
 export function whoami(token: string) {
   return request<TokenResponse["user"]>("GET", "/auth/me", { token });
 }
@@ -112,7 +130,11 @@ export function sendChatMessage(token: string, message: string, history: ChatTur
 }
 
 export function escalateChat(token: string, history: ChatTurn[], priority?: Priority) {
-  return request<TicketDetailOut>("POST", "/chat/escalate", { token, body: { history, priority } });
+  return request<EscalateResponse>("POST", "/chat/escalate", { token, body: { history, priority } });
+}
+
+export function bulkCreateTickets(token: string, messages: string[]) {
+  return request<EscalateResponse[]>("POST", "/tickets/bulk", { token, body: { messages } });
 }
 
 // --- Customer tickets ---
@@ -198,14 +220,103 @@ export function adminCreateAdmin(
   name: string,
   email: string,
   password: string,
-  department?: string
+  department?: string,
+  role: Role = "ADMIN"
 ) {
   return request<UserOut>("POST", "/admin/admins", {
     token,
-    body: { name, email, password, department: department || null },
+    body: { name, email, password, department: department || null, role },
   });
 }
 
 export function adminDeleteAdmin(token: string, adminId: number) {
   return request<null>("DELETE", `/admin/admins/${adminId}`, { token });
+}
+
+export function adminListTeamAccounts(token: string) {
+  return request<TeamAccountSummary[]>("GET", "/admin/team-accounts", { token });
+}
+
+// --- Feedback / Product & CX ---
+
+export function listFeedback(token: string, filters: FeedbackFilters = {}) {
+  return request<FeedbackOut[]>("GET", "/feedback", { token, query: filters });
+}
+
+export function getFeedback(token: string, feedbackId: number) {
+  return request<FeedbackDetailOut>("GET", `/feedback/${feedbackId}`, { token });
+}
+
+export function feedbackMetrics(
+  token: string,
+  dateRange: { date_from?: string; date_to?: string } = {}
+) {
+  return request<FeedbackMetrics>("GET", "/feedback/metrics", { token, query: dateRange });
+}
+
+// --- Surveys ---
+
+export function adminListSurveys(token: string) {
+  return request<Survey[]>("GET", "/surveys", { token });
+}
+
+export function adminGetSurvey(token: string, surveyId: number) {
+  return request<SurveyDetail>("GET", `/surveys/${surveyId}`, { token });
+}
+
+export function adminCreateSurvey(
+  token: string,
+  title: string,
+  description: string | null,
+  questions: SurveyQuestionInput[]
+) {
+  return request<SurveyDetail>("POST", "/surveys", { token, body: { title, description, questions } });
+}
+
+export function adminUpdateSurvey(
+  token: string,
+  surveyId: number,
+  title: string,
+  description: string | null,
+  questions: SurveyQuestionInput[]
+) {
+  return request<SurveyDetail>("PATCH", `/surveys/${surveyId}`, {
+    token,
+    body: { title, description, questions },
+  });
+}
+
+export function adminDeleteSurvey(token: string, surveyId: number) {
+  return request<null>("DELETE", `/surveys/${surveyId}`, { token });
+}
+
+export function adminPublishSurvey(token: string, surveyId: number) {
+  return request<SurveyDetail>("PATCH", `/surveys/${surveyId}/publish`, { token });
+}
+
+export function adminUnpublishSurvey(token: string, surveyId: number) {
+  return request<SurveyDetail>("PATCH", `/surveys/${surveyId}/unpublish`, { token });
+}
+
+export function adminListSurveyResponses(token: string, filters: SurveyResponseFilters = {}) {
+  return request<SurveyResponse[]>("GET", "/surveys/responses", { token, query: filters });
+}
+
+export function adminSurveyAnalytics(token: string, surveyId: number) {
+  return request<SurveyAnalytics>("GET", `/surveys/${surveyId}/analytics`, { token });
+}
+
+export function listActiveSurveys(token: string) {
+  return request<SurveyDetail[]>("GET", "/surveys/active", { token });
+}
+
+export function submitSurveyResponse(
+  token: string,
+  surveyId: number,
+  answers: { question_id: number; value: AnswerValue }[]
+) {
+  return request<SurveyResponse>("POST", `/surveys/${surveyId}/responses`, {
+    token,
+    body: { answers },
+  });
 }

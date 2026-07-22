@@ -1,4 +1,4 @@
-export type Role = "USER" | "ADMIN";
+export type Role = "USER" | "ADMIN" | "PRODUCT_CX";
 
 export type TicketStatus =
   | "NEW"
@@ -92,6 +92,29 @@ export const ASSIGNED_TEAMS: AssignedTeam[] = [
 
 export const DEPARTMENTS: string[] = ["Unassigned", ...ASSIGNED_TEAMS];
 
+export type FeedbackSentiment = "Positive" | "Neutral" | "Negative";
+
+export const SENTIMENTS: FeedbackSentiment[] = ["Positive", "Neutral", "Negative"];
+
+export type FeedbackCategory =
+  | "UI/UX"
+  | "Performance"
+  | "Pricing"
+  | "Feature Request"
+  | "Customer Support Experience"
+  | "General Praise"
+  | "Other";
+
+export const FEEDBACK_CATEGORIES: FeedbackCategory[] = [
+  "UI/UX",
+  "Performance",
+  "Pricing",
+  "Feature Request",
+  "Customer Support Experience",
+  "General Praise",
+  "Other",
+];
+
 export interface UserOut {
   id: number;
   name: string;
@@ -137,6 +160,7 @@ export interface TicketOut {
   assigned_admin_id: number | null;
   ai_summary: string | null;
   ai_category: string | null;
+  theme: string | null;
   ai_emotion: string | null;
   ai_confidence: number | null;
   ai_priority: string | null;
@@ -153,11 +177,68 @@ export interface TicketDetailOut extends TicketOut {
   user: UserOut;
 }
 
+export interface FeedbackOut {
+  id: number;
+  user_id: number;
+  raw_text: string;
+  sentiment: FeedbackSentiment | null;
+  category: FeedbackCategory | null;
+  team: string | null;
+  theme: string | null;
+  ai_summary: string | null;
+  ai_reasoning: string | null;
+  ai_confidence: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FeedbackDetailOut extends FeedbackOut {
+  user: UserOut;
+}
+
+export type EscalateResponse =
+  | { type: "ticket"; ticket: TicketDetailOut }
+  | { type: "feedback"; feedback: FeedbackOut };
+
+export interface FeedbackFilters {
+  sentiment?: string;
+  category?: string;
+  team?: string;
+  search?: string;
+  date_from?: string;
+  date_to?: string;
+  [key: string]: string | undefined;
+}
+
+export interface TopTheme {
+  theme: string;
+  count: number;
+}
+
+export interface ThemeTrendPoint {
+  date: string;
+  counts: Record<string, number>;
+}
+
+export interface FeedbackMetrics {
+  total_feedback: number;
+  feedback_per_sentiment: Record<string, number>;
+  feedback_per_category: Record<string, number>;
+  feedback_per_team: Record<string, number>;
+  top_themes: TopTheme[];
+  theme_trend: ThemeTrendPoint[];
+  date_range: DateRange;
+}
+
 export interface AdminSummary {
   id: number;
   name: string;
   email: string;
   department: string | null;
+}
+
+export interface TeamAccountSummary extends AdminSummary {
+  role: Role;
 }
 
 export interface DepartmentMetrics {
@@ -169,6 +250,8 @@ export interface DepartmentMetrics {
   tickets_per_emotion: Record<string, number>;
   tickets_per_category: Record<string, number>;
   tickets_per_department?: Record<string, number>;
+  top_themes: TopTheme[];
+  theme_trend: ThemeTrendPoint[];
 }
 
 export interface DateRange {
@@ -190,4 +273,104 @@ export interface AdminTicketFilters {
   date_from?: string;
   date_to?: string;
   [key: string]: string | number | undefined;
+}
+
+// --- Surveys ---
+
+export type QuestionType =
+  | "short_text"
+  | "long_text"
+  | "rating"
+  | "multiple_choice"
+  | "single_choice";
+
+export const QUESTION_TYPES: QuestionType[] = [
+  "short_text",
+  "long_text",
+  "rating",
+  "multiple_choice",
+  "single_choice",
+];
+
+export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
+  short_text: "Short text",
+  long_text: "Long text",
+  rating: "Rating (1-5)",
+  multiple_choice: "Multiple choice",
+  single_choice: "Single choice",
+};
+
+export const CHOICE_QUESTION_TYPES: QuestionType[] = ["multiple_choice", "single_choice"];
+
+export type AnswerValue = string | number | string[];
+
+export interface SurveyQuestion {
+  id: number;
+  question_text: string;
+  question_type: QuestionType;
+  options: string[] | null;
+  required: boolean;
+}
+
+export interface SurveyQuestionInput {
+  question_text: string;
+  question_type: QuestionType;
+  options: string[] | null;
+  required: boolean;
+}
+
+export interface Survey {
+  id: number;
+  title: string;
+  description: string | null;
+  is_published: boolean;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+  response_count: number;
+}
+
+export interface SurveyDetail extends Survey {
+  questions: SurveyQuestion[];
+}
+
+export interface SurveyAnswer {
+  id: number;
+  question_id: number;
+  value: AnswerValue;
+}
+
+export interface SurveyResponse {
+  id: number;
+  survey_id: number;
+  user_id: number;
+  submitted_at: string;
+  answers: SurveyAnswer[];
+  user: UserOut;
+}
+
+export interface SurveyResponseFilters {
+  survey_id?: number;
+  date_from?: string;
+  date_to?: string;
+  rating?: number;
+  question_id?: number;
+  user_id?: number;
+  [key: string]: string | number | undefined;
+}
+
+export interface SurveyQuestionAnalytics {
+  question_id: number;
+  question_text: string;
+  question_type: QuestionType;
+  response_count: number;
+  average_rating: number | null;
+  rating_distribution: Record<string, number>;
+  most_common_answers: { answer: string; count: number }[];
+}
+
+export interface SurveyAnalytics {
+  survey_id: number;
+  total_responses: number;
+  questions: SurveyQuestionAnalytics[];
 }

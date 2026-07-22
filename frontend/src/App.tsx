@@ -2,13 +2,17 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import { Header } from "./components/Header";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import { SurveyBubble } from "./components/SurveyBubble";
 import { Spinner } from "./components/ui/Feedback";
+import { homePathForRole } from "./lib/roles";
 import { LoginPage } from "./pages/LoginPage";
 import { CustomerHomePage } from "./pages/CustomerHomePage";
 import { CustomerTicketPage } from "./pages/CustomerTicketPage";
 import { AdminHomePage } from "./pages/AdminHomePage";
 import { AdminTicketPage } from "./pages/AdminTicketPage";
 import { AdminTeamPage } from "./pages/AdminTeamPage";
+import { ProductCxDashboardPage } from "./pages/ProductCxDashboardPage";
+import { SurveyManagementPage } from "./pages/SurveyManagementPage";
 
 function LoginRoute() {
   const { token, identity, isBootstrapping } = useAuth();
@@ -21,15 +25,18 @@ function LoginRoute() {
     );
   }
   if (token && identity) {
-    return <Navigate to={identity.role === "ADMIN" ? "/admin" : "/"} replace />;
+    return <Navigate to={homePathForRole(identity.role)} replace />;
   }
   return <LoginPage />;
 }
 
 export default function App() {
+  const { identity } = useAuth();
+
   return (
     <div className="min-h-screen bg-surface text-ink">
       <Header />
+      {identity?.role === "USER" && <SurveyBubble />}
       <Routes>
         <Route path="/login" element={<LoginRoute />} />
         <Route
@@ -69,6 +76,22 @@ export default function App() {
           element={
             <ProtectedRoute role="ADMIN">
               <AdminTeamPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/product-cx"
+          element={
+            <ProtectedRoute role="PRODUCT_CX">
+              <ProductCxDashboardPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/product-cx/surveys"
+          element={
+            <ProtectedRoute role="PRODUCT_CX">
+              <SurveyManagementPage />
             </ProtectedRoute>
           }
         />

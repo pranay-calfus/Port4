@@ -10,7 +10,17 @@ from ticket_router.config import config
 # separate test database - tests run against the same Supabase project used
 # for dev (see ticket_router/config.py: DIRECT_URL). Order doesn't matter -
 # CASCADE handles the FKs (tickets -> ticket_messages/ticket_activity).
-_TABLES = ["users", "tickets", "ticket_messages", "ticket_activity"]
+_TABLES = [
+    "users",
+    "tickets",
+    "ticket_messages",
+    "ticket_activity",
+    "feedback",
+    "surveys",
+    "survey_questions",
+    "survey_responses",
+    "survey_answers",
+]
 
 # DIRECT_URL uses SQLAlchemy's "postgresql+psycopg://" dialect+driver syntax
 # (for backend/db.py's create_engine()) - plain psycopg.connect() below

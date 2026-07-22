@@ -1,6 +1,36 @@
 import json
 
-from ticket_router.models import ASSIGNED_TEAMS, CATEGORIES, EMOTIONS, PRIORITIES, TicketRouteResult
+from ticket_router.models import (
+    ASSIGNED_TEAMS,
+    CATEGORIES,
+    EMOTIONS,
+    FEEDBACK_CATEGORIES,
+    FEEDBACK_SENTIMENTS,
+    PRIORITIES,
+    TicketRouteResult,
+)
+
+FEEDBACK_CATEGORY_DEFINITIONS: dict[str, str] = {
+    "UI/UX": "Comments about layout, navigation, visual design, ease of use, or the overall "
+    "experience of using the product.",
+    "Performance": "Comments about speed, load times, responsiveness, or reliability under "
+    "normal use (not an outage or a reproducible bug - that's a support issue).",
+    "Pricing": "Comments about cost, plans, value for money, or billing structure in general "
+    "(not a specific billing error - that's a support issue).",
+    "Feature Request": "Suggestions for new functionality that does not exist yet, offered as an "
+    "opinion rather than a blocking need.",
+    "Customer Support Experience": "Comments about the quality of a past support interaction "
+    "itself (e.g. how helpful, fast, or friendly an agent was).",
+    "General Praise": "Positive comments about the product overall with no specific topic.",
+    "Other": "Anything that genuinely does not fit the categories above.",
+}
+
+FEEDBACK_SENTIMENT_DEFINITIONS: dict[str, str] = {
+    "Positive": "The customer is happy, complimentary, or enthusiastic about something.",
+    "Neutral": "Matter-of-fact commentary or a suggestion with no clear positive or negative charge.",
+    "Negative": "The customer is unhappy or critical, but not asking for individual help - if they "
+    "want something fixed or answered, it is a support issue, not feedback.",
+}
 
 EMOTION_DEFINITIONS: dict[str, str] = {
     "Neutral": "Matter-of-fact, no strong emotional signal either way - a plain request or statement.",
@@ -46,6 +76,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             priority="Medium",
             assignedTeam="Support Team",
             emotion="Frustrated",
+            theme="Password Reset",
             reasoning="User cannot reset their password via the normal flow, which is an account access issue but not a security incident.",
             confidence=0.93,
         ),
@@ -57,6 +88,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             priority="Medium",
             assignedTeam="Billing Team",
             emotion="Disappointed",
+            theme="Refund Request",
             reasoning="Customer explicitly requests a refund for a returned, damaged item.",
             confidence=0.95,
         ),
@@ -68,6 +100,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             priority="High",
             assignedTeam="Engineering",
             emotion="Worried",
+            theme="Service Outage",
             reasoning="An active production outage affecting all customers is a critical, high-urgency infrastructure issue.",
             confidence=0.98,
         ),
@@ -79,6 +112,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             priority="High",
             assignedTeam="QA",
             emotion="Angry",
+            theme="App Crash",
             reasoning="A reproducible crash making the app unusable is a bug report, and bug reports are always treated as high priority.",
             confidence=0.9,
         ),
@@ -90,6 +124,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             priority="High",
             assignedTeam="Billing Team",
             emotion="Frustrated",
+            theme="Billing Error",
             reasoning="A duplicate charge is a payment error, which is always treated as high priority regardless of the amount.",
             confidence=0.96,
         ),
@@ -101,6 +136,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             priority="High",
             assignedTeam="Support Team",
             emotion="Frustrated",
+            theme="Login Issues",
             reasoning="Complete inability to log in blocks the user from working, which the priority rules classify as high urgency.",
             confidence=0.92,
         ),
@@ -112,6 +148,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             priority="Low",
             assignedTeam="Engineering",
             emotion="Neutral",
+            theme="Feature Requests",
             reasoning="This is a non-urgent enhancement suggestion with no functional impact on the current product.",
             confidence=0.94,
         ),
@@ -123,6 +160,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             priority="Medium",
             assignedTeam="Logistics",
             emotion="Worried",
+            theme="Delivery Delay",
             reasoning="A stalled delivery is a shipping delay affecting the customer but not a critical safety or financial issue.",
             confidence=0.91,
         ),
@@ -134,6 +172,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             priority="High",
             assignedTeam="Engineering",
             emotion="Frustrated",
+            theme="API Errors",
             reasoning="A broken production API endpoint actively disrupting a customer integration is a high-urgency technical issue.",
             confidence=0.95,
         ),
@@ -145,6 +184,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             priority="High",
             assignedTeam="Security Team",
             emotion="Worried",
+            theme="Account Compromise",
             reasoning="An unauthorized account change strongly suggests a security breach, which is always treated as high priority.",
             confidence=0.93,
         ),
@@ -156,6 +196,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             priority="Medium",
             assignedTeam="Billing Team",
             emotion="Neutral",
+            theme="Subscription Cancellation",
             reasoning="A subscription cancellation request is a standard billing action with no urgent safety or outage component.",
             confidence=0.95,
         ),
@@ -167,6 +208,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             priority="High",
             assignedTeam="Billing Team",
             emotion="Worried",
+            theme="Billing Error",
             reasoning="An invoiced amount that doesn't match the customer's plan is a payment error, which is always treated as high priority.",
             confidence=0.92,
         ),
@@ -196,8 +238,9 @@ For every customer support message you receive, determine:
 2. The priority level
 3. The team that should handle it
 4. The customer's dominant emotional tone
-5. A one-line reasoning that justifies your choices
-6. Your confidence in this classification, from 0 to 1
+5. The recurring theme this ticket belongs to
+6. A one-line reasoning that justifies your choices
+7. Your confidence in this classification, from 0 to 1
 
 # CLASSIFICATION RULES
 Choose exactly one category from this fixed list:
@@ -230,6 +273,13 @@ Identify the customer's dominant emotional tone from this fixed list:
 
 Base this purely on the tone of the message itself, independent of category/priority - a High priority ticket can be calmly worded (Neutral) and a Low priority one can be irritated (Frustrated). Pick exactly one label; when a message shows more than one emotion, choose the most dominant one.
 
+# THEME RULES
+Assign a short (2-4 word) theme label naming the specific recurring problem pattern this ticket belongs to - e.g. "Login Issues", "Payment Failure", "Delivery Delay", "App Crash", "Service Outage". Theme is NOT restricted to a fixed list - generate whatever label best fits, since the goal is to let genuinely new recurring patterns emerge over time without needing a code change.
+
+Theme is a different axis from category: category is the ticket's fixed administrative bucket, theme is the specific underlying pattern within (or across) categories that this ticket, and others like it, share - e.g. two Account Access tickets can have different themes ("Password Reset" vs. "MFA Problems"), and the same theme ("Billing Error") can span tickets classified under different categories.
+
+Consistency matters more than precision: prefer general, reusable phrasing ("Login Issues") over hyper-specific one-off wording ("Login Issues With Safari Autofill On Shared Devices"), so that genuinely similar problems across different tickets converge on the same theme label instead of fragmenting into near-duplicates.
+
 # REASONING RULES
 Write exactly one sentence of reasoning. It must cite the specific phrase or signal in the ticket that drove your decision (e.g. "the user explicitly says they cannot log in at all"). Do not restate the category name without justification.
 
@@ -248,6 +298,7 @@ You must respond by calling the "route_ticket" tool exactly once, with an input 
   "priority": one of {json.dumps(list(PRIORITIES))},
   "assignedTeam": one of {json.dumps(list(ASSIGNED_TEAMS))},
   "emotion": one of {json.dumps(list(EMOTIONS))},
+  "theme": "a short (2-4 word) recurring-problem-pattern label, not restricted to a fixed list",
   "reasoning": "one sentence explaining your decision",
   "confidence": a number between 0 and 1
 }}
@@ -328,3 +379,203 @@ You must respond by calling the "check_status_progression" tool exactly once, wi
 - NEVER include any prose, apology, or explanation before or after calling the tool.
 - ONLY communicate your answer by calling the "check_status_progression" tool with valid arguments matching the schema above.
 """.strip()
+
+# System prompt for the submission-type classifier (see
+# ticket_router.services.submission_type_service.classify_submission_type) -
+# the first thing run on any raised submission. Deliberately small and
+# separate from SYSTEM_PROMPT - a narrow binary classification, not a
+# ticket-routing decision.
+SUBMISSION_TYPE_SYSTEM_PROMPT = """
+# ROLE
+You are a classifier that reads a customer's submission and decides whether it is a Support Issue or Customer Feedback.
+
+# RULES
+- SUPPORT_ISSUE: the customer has a problem, request, question, or complaint that needs individual resolution - something to be fixed, answered, refunded, or actioned. Examples: "I can't log into my account.", "Payment keeps failing.", "How do I export my data?"
+- CUSTOMER_FEEDBACK: the customer is offering commentary, an opinion, praise, or a suggestion, with no expectation that anyone will resolve anything for them individually. Examples: "The app is very easy to use.", "The new dashboard looks much cleaner.", "It would be nice if the app had dark mode." (a passing wish, not a support request).
+- A negative or critical tone alone does not make something a support issue - "Your pricing is too high" is feedback unless the customer is asking for something to be done about their own account.
+- Be conservative: when genuinely ambiguous, answer SUPPORT_ISSUE, so nothing that might need a resolution is silently dropped from the support queue.
+
+# OUTPUT CONTRACT
+You must respond by calling the "classify_submission_type" tool exactly once, with an input object matching this schema:
+{
+  "submission_type": one of ["SUPPORT_ISSUE", "CUSTOMER_FEEDBACK"],
+  "reasoning": "one sentence citing the specific signal that drove this decision"
+}
+
+# FAILURE INSTRUCTIONS
+- NEVER wrap your output in markdown code fences.
+- NEVER include any prose, apology, or explanation before or after calling the tool.
+- ONLY communicate your answer by calling the "classify_submission_type" tool with valid arguments matching the schema above.
+""".strip()
+
+
+class FeedbackFewShotExample:
+    def __init__(
+        self, feedback: str, sentiment: str, category: str, team: str, theme: str, summary: str, reasoning: str, confidence: float
+    ) -> None:
+        self.feedback = feedback
+        self.sentiment = sentiment
+        self.category = category
+        self.team = team
+        self.theme = theme
+        self.summary = summary
+        self.reasoning = reasoning
+        self.confidence = confidence
+
+    def payload(self) -> dict:
+        return {
+            "sentiment": self.sentiment,
+            "category": self.category,
+            "assignedTeam": self.team,
+            "theme": self.theme,
+            "summary": self.summary,
+            "reasoning": self.reasoning,
+            "confidence": self.confidence,
+        }
+
+
+FEEDBACK_FEW_SHOT_EXAMPLES: list[FeedbackFewShotExample] = [
+    FeedbackFewShotExample(
+        "The app is very easy to use.",
+        "Positive",
+        "General Praise",
+        "Customer Success",
+        "Positive Experience",
+        "Customer finds the app easy to use overall.",
+        "A short, unqualified compliment about ease of use with no specific topic.",
+        0.9,
+    ),
+    FeedbackFewShotExample(
+        "The new dashboard looks much cleaner.",
+        "Positive",
+        "UI/UX",
+        "Engineering",
+        "UI Improvements",
+        "Customer likes the visual redesign of the dashboard.",
+        "The comment specifically praises the dashboard's visual design.",
+        0.92,
+    ),
+    FeedbackFewShotExample(
+        "It would be great if you could add a dark mode option someday.",
+        "Neutral",
+        "Feature Request",
+        "Engineering",
+        "Feature Requests",
+        "Customer suggests adding a dark mode option.",
+        "This is a wish for future functionality, not a blocking request for their own account.",
+        0.88,
+    ),
+    FeedbackFewShotExample(
+        "Your pricing feels a bit high compared to competitors.",
+        "Negative",
+        "Pricing",
+        "Sales Team",
+        "Pricing Feedback",
+        "Customer feels the pricing is too high relative to competitors.",
+        "The customer is critical of pricing in general, not asking for a refund or billing fix.",
+        0.85,
+    ),
+    FeedbackFewShotExample(
+        "The support agent I spoke with last week was incredibly patient and helpful.",
+        "Positive",
+        "Customer Support Experience",
+        "Customer Success",
+        "Positive Experience",
+        "Customer praises a past support interaction as patient and helpful.",
+        "The comment specifically compliments the quality of a prior support interaction.",
+        0.93,
+    ),
+    FeedbackFewShotExample(
+        "The app feels a little slow when switching between tabs, but nothing major.",
+        "Negative",
+        "Performance",
+        "Engineering",
+        "Slow Loading",
+        "Customer notices minor slowness when switching tabs.",
+        "The customer describes general sluggishness as an observation, not a broken feature to fix.",
+        0.8,
+    ),
+]
+
+
+def _render_feedback_few_shot_block() -> str:
+    blocks = []
+    for i, example in enumerate(FEEDBACK_FEW_SHOT_EXAMPLES, start=1):
+        blocks.append(
+            f'Example {i}:\nFeedback: "{example.feedback}"\nOutput: {json.dumps(example.payload())}'
+        )
+    return "\n\n".join(blocks)
+
+
+def _build_feedback_classification_system_prompt() -> str:
+    category_lines = "\n".join(f"- {c}: {FEEDBACK_CATEGORY_DEFINITIONS[c]}" for c in FEEDBACK_CATEGORIES)
+    sentiment_lines = "\n".join(f"- {s}: {FEEDBACK_SENTIMENT_DEFINITIONS[s]}" for s in FEEDBACK_SENTIMENTS)
+
+    return f"""
+# ROLE
+You are an expert product feedback analyst for a SaaS company. You read customer feedback (not support issues) and classify it for the Product & CX team.
+
+# OBJECTIVE
+For every piece of customer feedback you receive, determine:
+1. The sentiment
+2. The category
+3. The internal team most relevant to this feedback
+4. The recurring theme this feedback belongs to
+5. A one-sentence AI-generated summary of the feedback
+6. A one-line reasoning that justifies your choices
+7. Your confidence in this classification, from 0 to 1
+
+# CATEGORY RULES
+Choose exactly one category from this fixed list:
+{category_lines}
+
+# SENTIMENT RULES
+Choose exactly one sentiment from this fixed list:
+{sentiment_lines}
+
+# TEAM ASSIGNMENT RULES
+Assign exactly one team from this fixed list, based on category (use judgment when feedback spans more than one team):
+- Engineering: UI/UX, Performance, Feature Request
+- Sales Team: Pricing
+- Customer Success: Customer Support Experience, General Praise, or anything ambiguous/cross-cutting
+
+# THEME RULES
+Assign a short (2-4 word) theme label naming the specific recurring pattern this feedback belongs to - e.g. "UI Improvements", "Feature Requests", "Positive Experience", "Pricing Feedback", "Slow Loading". Theme is NOT restricted to a fixed list - generate whatever label best fits, since the goal is to let genuinely new recurring patterns emerge over time without a code change.
+
+Theme is a different axis from category: category is feedback's fixed administrative bucket, theme is the specific pattern that can recur across different categories (e.g. "Positive Experience" can apply to General Praise or Customer Support Experience feedback alike) - and, since tickets are themed the same way, a theme can in principle recur across both tickets and feedback.
+
+Consistency matters more than precision: prefer general, reusable phrasing over hyper-specific one-off wording, so genuinely similar feedback converges on the same theme label instead of fragmenting into near-duplicates.
+
+# SUMMARY RULES
+Write exactly one sentence summarizing what the customer said, in the third person, without editorializing.
+
+# REASONING RULES
+Write exactly one sentence of reasoning citing the specific phrase or signal that drove your sentiment/category/team choices.
+
+# CONFIDENCE RULES
+Estimate confidence from 0 to 1, the same way a support-ticket classifier would - high (0.85+) for clear feedback, lower (0.4-0.7) for very short or ambiguous feedback, but always produce your best classification.
+
+# OUTPUT CONTRACT
+You must respond by calling the "classify_feedback" tool exactly once, with an input object matching this schema:
+{{
+  "sentiment": one of {json.dumps(list(FEEDBACK_SENTIMENTS))},
+  "category": one of {json.dumps(list(FEEDBACK_CATEGORIES))},
+  "assignedTeam": one of {json.dumps(list(ASSIGNED_TEAMS))},
+  "theme": "a short (2-4 word) recurring-problem-pattern label, not restricted to a fixed list",
+  "summary": "one sentence summarizing the feedback",
+  "reasoning": "one sentence explaining your decision",
+  "confidence": a number between 0 and 1
+}}
+
+# FAILURE INSTRUCTIONS
+- NEVER wrap your output in markdown code fences.
+- NEVER include any prose, apology, or explanation before or after calling the tool.
+- NEVER return plain text JSON outside of the tool call.
+- ONLY communicate your answer by calling the "classify_feedback" tool with valid arguments matching the schema above.
+
+# EXAMPLES
+{_render_feedback_few_shot_block()}
+""".strip()
+
+
+FEEDBACK_CLASSIFICATION_SYSTEM_PROMPT = _build_feedback_classification_system_prompt()

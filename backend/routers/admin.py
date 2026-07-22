@@ -136,6 +136,11 @@ def list_admins(admin: dict = Depends(require_admin)):
     return ticket_service.list_admins(client, admin)
 
 
+@router.get("/team-accounts", response_model=list[dict])
+def list_team_accounts(_admin: dict = Depends(require_super_admin)):
+    return ticket_service.list_team_accounts(client)
+
+
 @router.post("/admins", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def create_admin_account(
     payload: AdminCreateRequest,
@@ -147,7 +152,7 @@ def create_admin_account(
             name=payload.name,
             email=payload.email,
             password=payload.password,
-            role=Role.ADMIN,
+            role=Role(payload.role),
             department=payload.department,
         )
     except ValueError as error:
@@ -161,6 +166,6 @@ def delete_admin_account(admin_id: int, admin: dict = Depends(require_super_admi
             status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot delete your own account"
         )
     target = ticket_service.get_user(client, admin_id)
-    if target is None or target["role"] != Role.ADMIN.value:
+    if target is None or target["role"] not in (Role.ADMIN.value, Role.PRODUCT_CX.value):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin not found")
     ticket_service.delete_admin(client, target)

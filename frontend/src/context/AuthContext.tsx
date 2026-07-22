@@ -18,6 +18,7 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
   adminLogin: (email: string, password: string) => Promise<void>;
+  productCxLogin: (email: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -95,9 +96,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [applySession]
   );
 
+  const productCxLogin = useCallback(
+    async (email: string, password: string) => {
+      const res = await api.productCxLogin(email, password);
+      applySession(res.access_token, res.user);
+    },
+    [applySession]
+  );
+
   const value = useMemo<AuthContextValue>(
-    () => ({ token, identity, isBootstrapping, login, register, adminLogin, logout: clearSession }),
-    [token, identity, isBootstrapping, login, register, adminLogin, clearSession]
+    () => ({
+      token,
+      identity,
+      isBootstrapping,
+      login,
+      register,
+      adminLogin,
+      productCxLogin,
+      logout: clearSession,
+    }),
+    [token, identity, isBootstrapping, login, register, adminLogin, productCxLogin, clearSession]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -25,6 +25,7 @@ def test_1_validates_billing_response_with_all_required_fields():
         "priority",
         "assignedTeam",
         "emotion",
+        "theme",
         "reasoning",
         "confidence",
     }

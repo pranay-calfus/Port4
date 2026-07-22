@@ -46,6 +46,40 @@ PRIORITIES: tuple[str, ...] = Priority.__args__
 EMOTIONS: tuple[str, ...] = Emotion.__args__
 ASSIGNED_TEAMS: tuple[str, ...] = AssignedTeam.__args__
 
+# Whether a submission is a support issue (should become a ticket) or
+# unsolicited customer feedback (should not) - see
+# ticket_router.services.submission_type_service.classify_submission_type.
+SubmissionType = Literal["SUPPORT_ISSUE", "CUSTOMER_FEEDBACK"]
+
+FeedbackSentiment = Literal["Positive", "Neutral", "Negative"]
+
+FeedbackCategory = Literal[
+    "UI/UX",
+    "Performance",
+    "Pricing",
+    "Feature Request",
+    "Customer Support Experience",
+    "General Praise",
+    "Other",
+]
+
+SUBMISSION_TYPES: tuple[str, ...] = SubmissionType.__args__
+FEEDBACK_SENTIMENTS: tuple[str, ...] = FeedbackSentiment.__args__
+FEEDBACK_CATEGORIES: tuple[str, ...] = FeedbackCategory.__args__
+
+# Survey question types (see backend.models.SurveyQuestion). Not an
+# AI-classified value - authored directly by a Product & CX user when
+# building a survey - but kept here alongside the other taxonomies since
+# it's still a single-source-of-truth Literal shared by the Pydantic
+# schemas (backend/schemas.py) and the SQLAlchemy model's plain-string
+# column, the same rationale as Category/AssignedTeam above.
+QuestionType = Literal["short_text", "long_text", "rating", "multiple_choice", "single_choice"]
+
+QUESTION_TYPES: tuple[str, ...] = QuestionType.__args__
+
+# Question types that carry a fixed set of selectable options.
+CHOICE_QUESTION_TYPES = {"multiple_choice", "single_choice"}
+
 # Hard cap on ticket length. Anything longer is truncated (not rejected)
 # before being sent to the AI - see services/prompt_service.py.
 MAX_TICKET_LENGTH = 8000
@@ -66,6 +100,12 @@ class TicketRouteResult(BaseModel):
     priority: Priority
     assigned_team: AssignedTeam = Field(alias="assignedTeam")
     emotion: Emotion
+    # A short, freely-generated (not enum-constrained) label for the
+    # recurring problem pattern this ticket belongs to - e.g. "Login
+    # Issues", "Payment Failure" - distinct from `category`'s fixed
+    # taxonomy. See "THEME RULES" in prompts.py for the generation rules
+    # that keep this consistent enough to aggregate across tickets.
+    theme: str = Field(min_length=1)
     reasoning: str = Field(min_length=1)
     confidence: float = Field(ge=0, le=1)
     # Not part of the AI's output contract - set by the routing service
@@ -113,6 +153,43 @@ class StatusProgressionCheck(BaseModel):
 
     recommended_status: StatusProgressionOrNoChange
     reasoning: str = Field(min_length=1)
+
+
+class SubmissionTypeResult(BaseModel):
+    """Output contract for the submission-type classifier (see
+    ticket_router.services.submission_type_service.classify_submission_type)
+    - the first thing run on any raised submission, deciding whether it
+    becomes a support ticket or a piece of customer feedback.
+    """
+
+    submission_type: SubmissionType
+    reasoning: str = Field(min_length=1)
+
+
+class FeedbackClassification(BaseModel):
+    """The AI output contract for customer feedback (see
+    ticket_router.services.feedback_classification_service.classify_feedback)
+    - mirrors TicketRouteResult's shape/rationale, but for the feedback
+    dimensions (sentiment/category/team/summary) rather than routing ones.
+    `team` reuses the same AssignedTeam taxonomy as tickets, since it answers
+    the same question ("which internal team should see this"), just for
+    feedback instead of an actionable issue.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    sentiment: FeedbackSentiment
+    category: FeedbackCategory
+    team: AssignedTeam = Field(alias="assignedTeam")
+    # Same free-generated recurring-pattern label as TicketRouteResult.theme
+    # (e.g. "UI Improvements", "Positive Experience") - shares the same
+    # THEME RULES prompt guidance so themes can recur across both tickets
+    # and feedback.
+    theme: str = Field(min_length=1)
+    summary: str = Field(min_length=1)
+    reasoning: str = Field(min_length=1)
+    confidence: float = Field(ge=0, le=1)
+    model_used: str | None = Field(default=None, exclude=True)
 
 
 class TicketRequest(BaseModel):

@@ -205,6 +205,54 @@ function AdminLoginForm() {
   );
 }
 
+function ProductCxLoginForm() {
+  const { productCxLogin } = useAuth();
+  const navigate = useNavigate();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    setSubmitting(true);
+    try {
+      await productCxLogin(email, password);
+      navigate("/product-cx");
+    } catch (err) {
+      setError(ErrorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Card>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <TextField
+          label="Email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+        <TextField
+          label="Password"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+        {error && <ErrorBanner message={error} />}
+        <Button type="submit" variant="primary" className="w-full" disabled={submitting}>
+          Log In
+        </Button>
+      </form>
+    </Card>
+  );
+}
+
 export function LoginPage() {
   return (
     <div className="mx-auto max-w-md px-6 py-16">
@@ -223,6 +271,7 @@ export function LoginPage() {
             ),
           },
           { key: "admin", label: "Admin", content: <AdminLoginForm /> },
+          { key: "product-cx", label: "Product & CX", content: <ProductCxLoginForm /> },
         ]}
       />
     </div>

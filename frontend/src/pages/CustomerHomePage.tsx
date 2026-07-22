@@ -1,3 +1,4 @@
+import { BulkTicketForm } from "../components/BulkTicketForm";
 import { ChatBox } from "../components/ChatBox";
 import { TicketList } from "../components/TicketList";
 import { Tabs } from "../components/ui/Tabs";
@@ -8,6 +9,7 @@ export function CustomerHomePage() {
       <Tabs
         tabs={[
           { key: "new", label: "New Ticket", content: <ChatBox /> },
+          { key: "bulk", label: "Bulk Submit", content: <BulkTicketForm /> },
           { key: "mine", label: "My Tickets", content: <TicketList /> },
         ]}
       />

@@ -99,12 +99,28 @@ def get_user(client: Client, user_id: int) -> dict | None:
 def list_admins(client: Client, admin: dict) -> list[dict]:
     """Admin accounts visible to `admin` for the ticket-assignment dropdown -
     every admin if `admin` is a super-admin, otherwise just their own
-    department's admins.
+    department's admins. Deliberately excludes PRODUCT_CX accounts - they
+    don't handle tickets, so they must never appear as an assignment target.
     """
     query = client.table("users").select("id,name,email,department").eq("role", Role.ADMIN.value)
     if admin["department"] is not None:
         query = query.eq("department", admin["department"])
     return query.execute().data
+
+
+def list_team_accounts(client: Client) -> list[dict]:
+    """Every non-customer account (ADMIN and PRODUCT_CX) for the super-admin
+    team-management screen - unlike list_admins, this deliberately includes
+    PRODUCT_CX accounts so they're visible/deletable there, even though they
+    must stay out of the ticket-assignment dropdown.
+    """
+    return (
+        client.table("users")
+        .select("id,name,email,department,role")
+        .in_("role", [Role.ADMIN.value, Role.PRODUCT_CX.value])
+        .execute()
+        .data
+    )
 
 
 def delete_admin(client: Client, target: dict) -> None:
@@ -281,6 +297,7 @@ def escalate_to_ticket(
                 "ai_priority": result.priority,
                 "ai_summary": result.reasoning,
                 "ai_category": result.category,
+                "theme": result.theme,
                 "ai_emotion": result.emotion,
                 "ai_confidence": result.confidence,
                 "status": TicketStatus.OPEN.value,
@@ -721,6 +738,42 @@ def _tally(tickets: list[dict], key) -> dict[str, int]:
     return counts
 
 
+def _top_themes(items: list[dict], *, top_n: int = 10) -> list[dict]:
+    """Ranks free-generated `theme` values by frequency, capped at `top_n`
+    with the remainder folded into an "Other" bucket - themes are AI-
+    generated free text (see ticket_router.models.TicketRouteResult.theme),
+    so this pre-aggregation is what keeps the dashboard chart data bounded
+    instead of showing one bar per ever-so-slightly-different phrasing.
+    Shared by ticket_service and feedback_service - both tickets and
+    feedback rows have a `theme` column with the same shape.
+    """
+    counts = _tally(items, lambda i: i["theme"])
+    ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+    top, rest = ranked[:top_n], ranked[top_n:]
+    if rest:
+        top.append(("Other", sum(n for _, n in rest)))
+    return [{"theme": t, "count": n} for t, n in top]
+
+
+def _theme_trend(
+    items: list[dict], top_theme_names: list[str], *, date_key: str = "created_at"
+) -> list[dict]:
+    """Per-day counts of each of `top_theme_names` (everything else folded
+    into "Other"), for the dashboard's theme trend-over-time chart. Shared
+    by ticket_service and feedback_service.
+    """
+    top_set = set(top_theme_names)
+    by_date: dict[str, dict[str, int]] = {}
+    for item in items:
+        if item["theme"] is None:
+            continue
+        bucket = item["theme"] if item["theme"] in top_set else "Other"
+        date_str = item[date_key][:10]
+        by_date.setdefault(date_str, {}).setdefault(bucket, 0)
+        by_date[date_str][bucket] += 1
+    return [{"date": d, "counts": c} for d, c in sorted(by_date.items())]
+
+
 def _metrics_for(tickets: list[dict]) -> dict:
     open_tickets = [t for t in tickets if t["status"] != TicketStatus.CLOSED.value]
     resolution_hours = [
@@ -728,6 +781,7 @@ def _metrics_for(tickets: list[dict]) -> dict:
         for t in tickets
         if t["resolved_at"] is not None
     ]
+    ranked_themes = _top_themes(tickets)
     return {
         "open_tickets": len(open_tickets),
         "total_tickets": len(tickets),
@@ -738,6 +792,8 @@ def _metrics_for(tickets: list[dict]) -> dict:
         "tickets_per_priority": _tally(tickets, lambda t: t["priority"]),
         "tickets_per_emotion": _tally(tickets, lambda t: t["ai_emotion"]),
         "tickets_per_category": _tally(tickets, lambda t: t["ai_category"]),
+        "top_themes": ranked_themes,
+        "theme_trend": _theme_trend(tickets, [t["theme"] for t in ranked_themes]),
     }
 
 

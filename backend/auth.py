@@ -73,6 +73,7 @@ def require_role(role: Role):
 
 require_user = require_role(Role.USER)
 require_admin = require_role(Role.ADMIN)
+require_product_cx = require_role(Role.PRODUCT_CX)
 
 
 def require_super_admin(admin: dict = Depends(require_admin)) -> dict:
@@ -81,3 +82,18 @@ def require_super_admin(admin: dict = Depends(require_admin)) -> dict:
             status_code=status.HTTP_403_FORBIDDEN, detail="Super-admin access required"
         )
     return admin
+
+
+def require_feedback_access(user: dict = Depends(get_current_user)) -> dict:
+    """Gates the Product & CX dashboard/feedback endpoints: Product & CX
+    accounts, plus super-admins (who already have whole-platform visibility
+    into every team's tickets - see admin_can_access) - but not
+    department-scoped admins, since feedback is a distinct product concern
+    from a support team's own ticket queue.
+    """
+    is_super_admin = user["role"] == Role.ADMIN.value and user["department"] is None
+    if user["role"] != Role.PRODUCT_CX.value and not is_super_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Product & CX access required"
+        )
+    return user

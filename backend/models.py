@@ -29,7 +29,19 @@ enum, which would otherwise require a hand-written migration.
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, String, Text, func, text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db import Base
@@ -38,6 +50,7 @@ from backend.db import Base
 class Role(StrEnum):
     USER = "USER"
     ADMIN = "ADMIN"
+    PRODUCT_CX = "PRODUCT_CX"
 
 
 class TicketStatus(StrEnum):
@@ -112,6 +125,10 @@ class Ticket(Base):
     )
     ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_category: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # A free-generated (not enum-constrained) recurring-problem-pattern
+    # label, distinct from ai_category - see TicketRouteResult.theme in
+    # ticket_router/models.py for the full rationale.
+    theme: Mapped[str | None] = mapped_column(String(100), nullable=True)
     ai_emotion: Mapped[str | None] = mapped_column(String(20), nullable=True)
     ai_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     # The AI's own priority suggestion, immutable once set - kept separate
@@ -134,6 +151,105 @@ class Ticket(Base):
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Feedback(Base):
+    __tablename__ = "feedback"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    raw_text: Mapped[str] = mapped_column(Text)
+    # sentiment/category/team are plain strings validated at the Pydantic
+    # layer against ticket_router.models Literals, same rationale as
+    # Ticket.ai_category/department above - nullable so a soft-failed
+    # classification still stores the raw submission.
+    sentiment: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    team: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Same free-generated recurring-pattern label as Ticket.theme.
+    theme: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    # Initial value only - kept current on every UPDATE by a DB trigger, see
+    # User.updated_at above.
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Survey(Base):
+    __tablename__ = "surveys"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_published: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), nullable=False)
+    # ondelete="SET NULL": deleting the Product & CX/admin account that
+    # authored a survey doesn't delete the survey itself, same rationale as
+    # Ticket.assigned_admin_id above.
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class SurveyQuestion(Base):
+    __tablename__ = "survey_questions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    survey_id: Mapped[int] = mapped_column(ForeignKey("surveys.id", ondelete="CASCADE"))
+    question_text: Mapped[str] = mapped_column(Text)
+    # Plain string validated at the Pydantic layer against
+    # ticket_router.models.QuestionType, same rationale as
+    # Feedback.category/team above.
+    question_type: Mapped[str] = mapped_column(String(20))
+    # Only meaningful for multiple_choice/single_choice - a JSON list[str]
+    # of selectable options, null for the free-text/rating types.
+    options: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    position: Mapped[int] = mapped_column()
+    required: Mapped[bool] = mapped_column(Boolean, server_default=text("true"), nullable=False)
+
+
+class SurveyResponse(Base):
+    __tablename__ = "survey_responses"
+    __table_args__ = (UniqueConstraint("survey_id", "user_id", name="uq_survey_response_per_user"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    survey_id: Mapped[int] = mapped_column(ForeignKey("surveys.id", ondelete="CASCADE"))
+    # ondelete="CASCADE": unlike Ticket.user_id (a customer's tickets are
+    # kept for support history even if the account is later removed), a
+    # deleted user's survey responses carry no such requirement, so they're
+    # simply removed with the account.
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    submitted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class SurveyAnswer(Base):
+    __tablename__ = "survey_answers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    response_id: Mapped[int] = mapped_column(
+        ForeignKey("survey_responses.id", ondelete="CASCADE")
+    )
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("survey_questions.id", ondelete="CASCADE")
+    )
+    # A string (short_text/long_text/single_choice), an int 1-5 (rating), or
+    # a list[str] (multiple_choice) - shape validated at the Pydantic layer
+    # against the question's own question_type, not via a DB CHECK, same
+    # rationale as every other free-shaped column in this module.
+    value: Mapped[dict | list | str | int] = mapped_column(JSON, nullable=False)
 
 
 class TicketMessage(Base):

@@ -67,5 +67,14 @@ class Config:
         if origin.strip()
     ]
 
+    # Optional fixed dev accounts, created once at startup by
+    # backend/seed.py if both the email and password for a given account
+    # are set - see that module's docstring. Left empty by default so
+    # nothing is seeded unless explicitly configured.
+    SUPER_ADMIN_EMAIL: str = os.getenv("SUPER_ADMIN_EMAIL", "")
+    SUPER_ADMIN_PASSWORD: str = os.getenv("SUPER_ADMIN_PASSWORD", "")
+    PRODUCT_CX_EMAIL: str = os.getenv("PRODUCT_CX_EMAIL", "")
+    PRODUCT_CX_PASSWORD: str = os.getenv("PRODUCT_CX_PASSWORD", "")
+
 
 config = Config()

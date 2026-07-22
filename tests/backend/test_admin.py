@@ -1,6 +1,7 @@
 from backend.models import Role
+from backend.routers import chat as chat_router
 from backend.services import ticket_service
-from ticket_router.models import TicketRouteResult
+from ticket_router.models import SubmissionTypeResult, TicketRouteResult
 
 
 def _fake_result(category, team, priority="High", confidence=0.9):
@@ -9,6 +10,7 @@ def _fake_result(category, team, priority="High", confidence=0.9):
         priority=priority,
         assignedTeam=team,
         emotion="Neutral",
+        theme="test theme",
         reasoning="test",
         confidence=confidence,
     )
@@ -38,6 +40,13 @@ def _admin_login(client, db_session, email="admin@example.com", department=None)
 def _escalate_as(client, monkeypatch, result, email):
     from backend.services import ticket_service as ts
 
+    monkeypatch.setattr(
+        chat_router,
+        "classify_submission_type",
+        lambda transcript: SubmissionTypeResult(
+            submission_type="SUPPORT_ISSUE", reasoning="test"
+        ),
+    )
     monkeypatch.setattr(ts, "route_ticket", lambda message: result)
     monkeypatch.setattr(
         ts, "chat_with_department", lambda team, history, message, current_status=None: "Noted."
@@ -47,7 +56,7 @@ def _escalate_as(client, monkeypatch, result, email):
         "/chat/escalate",
         headers=headers,
         json={"history": [{"role": "user", "content": "help me"}]},
-    ).json()
+    ).json()["ticket"]
 
 
 def test_department_scoped_admin_only_sees_own_department(client, monkeypatch, db_session):
