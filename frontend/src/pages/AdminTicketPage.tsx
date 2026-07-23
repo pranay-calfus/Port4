@@ -12,7 +12,7 @@ import {
 } from "../api/client";
 import { DEPARTMENTS, PRIORITIES, TICKET_STATUSES } from "../api/types";
 import { useAuth } from "../context/AuthContext";
-import { statusLabel } from "../lib/colors";
+import { STATUS_COLORS, statusLabel } from "../lib/colors";
 import { Accordion } from "../components/ui/Accordion";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -104,7 +104,7 @@ export function AdminTicketPage() {
         ← Back to Tickets
       </Link>
 
-      <Card className="space-y-6">
+      <Card accent={STATUS_COLORS[ticket.status]} className="space-y-6">
         <div className="flex items-start justify-between gap-4">
           <h1 className="text-2xl font-bold text-ink">
             {ticket.ticket_number} — {ticket.title}

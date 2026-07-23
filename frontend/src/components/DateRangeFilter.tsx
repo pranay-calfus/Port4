@@ -37,7 +37,7 @@ export function DateRangeFilter({
               type="date"
               value={customFrom}
               onChange={(e) => setCustomFrom(e.target.value)}
-              className="rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink"
+              className="rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand"
             />
           </div>
           <div>
@@ -46,7 +46,7 @@ export function DateRangeFilter({
               type="date"
               value={customTo}
               onChange={(e) => setCustomTo(e.target.value)}
-              className="rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink"
+              className="rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand"
             />
           </div>
         </>

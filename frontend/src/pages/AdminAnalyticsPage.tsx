@@ -86,7 +86,7 @@ export function AdminAnalyticsPage() {
               <select
                 value={teamFilter}
                 onChange={(e) => setTeamFilter(e.target.value)}
-                className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink"
+                className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand"
               >
                 <option value="All Teams">All Teams</option>
                 {teams.map((team) => (

@@ -16,6 +16,7 @@ export default {
           muted: "var(--color-text-muted)",
         },
         accent: "var(--color-accent)",
+        brand: "var(--color-brand)",
       },
       fontFamily: {
         sans: [

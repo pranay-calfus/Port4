@@ -76,7 +76,7 @@ export function ProductCxWeeklyReportsPage() {
           </Card>
         )}
         {latest && (
-          <Card>
+          <Card accent={WEEKLY_REPORT_SOURCE_COLORS[latest.generated_by]}>
             <WeeklyReportDetail report={latest} />
           </Card>
         )}

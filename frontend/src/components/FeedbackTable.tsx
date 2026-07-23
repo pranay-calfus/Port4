@@ -45,7 +45,7 @@ export function FeedbackTable() {
             <select
               value={sentiment}
               onChange={(e) => setSentiment(e.target.value)}
-              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink"
+              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand"
             >
               <option value="All">All</option>
               {SENTIMENTS.map((s) => (
@@ -60,7 +60,7 @@ export function FeedbackTable() {
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink"
+              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand"
             >
               <option value="All">All</option>
               {FEEDBACK_CATEGORIES.map((c) => (
@@ -75,7 +75,7 @@ export function FeedbackTable() {
             <select
               value={team}
               onChange={(e) => setTeam(e.target.value)}
-              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink"
+              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand"
             >
               <option value="All">All</option>
               {ASSIGNED_TEAMS.map((t) => (
@@ -91,7 +91,7 @@ export function FeedbackTable() {
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink"
+              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand"
             />
           </div>
           <div>
@@ -100,7 +100,7 @@ export function FeedbackTable() {
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink"
+              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand"
             />
           </div>
         </div>
@@ -208,7 +208,7 @@ export function FeedbackTable() {
                 </p>
                 <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
                   <div
-                    className="h-full bg-accent"
+                    className="h-full bg-brand"
                     style={{ width: `${Math.round(viewing.ai_confidence * 100)}%` }}
                   />
                 </div>

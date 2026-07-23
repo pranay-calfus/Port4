@@ -53,7 +53,7 @@ export function TicketAiCard({ ticket }: { ticket: TicketDetailOut }) {
           <CardLabel>Confidence</CardLabel>
           <p className="mb-1.5 font-semibold text-ink">{confidencePct}%</p>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-            <div className="h-full bg-accent" style={{ width: `${confidencePct}%` }} />
+            <div className="h-full bg-brand" style={{ width: `${confidencePct}%` }} />
           </div>
         </Card>
       </div>

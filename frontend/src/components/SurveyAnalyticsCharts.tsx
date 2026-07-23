@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { adminListSurveys, adminSurveyAnalytics } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import { BRAND_ACCENT } from "../lib/colors";
 import { Card, CardLabel } from "./ui/Card";
 import { ErrorBanner, ErrorMessage, Spinner } from "./ui/Feedback";
 
@@ -16,7 +17,7 @@ function RatingDistribution({ distribution }: { distribution: Record<string, num
           <div key={star} className="flex items-center gap-2 text-xs text-ink-muted">
             <span className="w-8">{star}★</span>
             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
-              <div className="h-full bg-accent" style={{ width: `${pct}%` }} />
+              <div className="h-full bg-brand" style={{ width: `${pct}%` }} />
             </div>
             <span className="w-14 text-right">
               {count} ({pct}%)
@@ -57,7 +58,7 @@ export function SurveyAnalyticsCharts({
         <select
           value={surveyId}
           onChange={(e) => setSurveyId(e.target.value)}
-          className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink"
+          className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand"
         >
           <option value="">Select a survey…</option>
           {surveys?.map((s) => (
@@ -74,7 +75,7 @@ export function SurveyAnalyticsCharts({
 
       {analytics && (
         <div className="space-y-4">
-          <Card>
+          <Card accent={BRAND_ACCENT}>
             <CardLabel>Total Responses</CardLabel>
             <p className="text-3xl font-bold text-ink">{analytics.total_responses}</p>
           </Card>

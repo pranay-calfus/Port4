@@ -11,6 +11,13 @@
   --color-text-muted: #94a3b8;
   --color-accent: #f8fafc;
   --color-accent-ink: #0a0a0a;
+  /* The app's single structural accent - active nav/tab indicators, focus
+     rings, and the optional Card `accent` prop (see ui/Card.tsx). Distinct
+     from lib/colors.ts's HUES palette, which is for *data* (sentiment,
+     category, team, ...) - this is purely "this is the app's brand", used
+     sparingly so it reads as an intentional accent, not another category
+     color. */
+  --color-brand: #818cf8;
 }
 
 :root[data-theme="light"] {
@@ -21,6 +28,7 @@
   --color-text-muted: #64748b;
   --color-accent: #0f172a;
   --color-accent-ink: #f8fafc;
+  --color-brand: #4f46e5;
 }
 
 html,

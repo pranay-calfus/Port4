@@ -8,6 +8,12 @@ import type {
   WeeklyReportSource,
 } from "../api/types";
 
+// The app's single structural accent (see index.css's --color-brand) - for
+// non-data UI accents: a Card's `accent` prop when there's no more specific
+// status/team/sentiment color to use, e.g. a generic "informational" stat
+// tile. Kept distinct from HUES below, which is for data.
+export const BRAND_ACCENT = "var(--color-brand)";
+
 // Fixed, CVD-friendly hue palette. Order mirrors the fixed category order used
 // throughout the app (never sorted by value) so a status/team/emotion always
 // gets the same color everywhere it appears.

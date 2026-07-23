@@ -25,6 +25,7 @@ import { Card, CardLabel } from "../components/ui/Card";
 import { ErrorBanner, ErrorMessage, Spinner, SuccessBanner } from "../components/ui/Feedback";
 import { SelectField, TextAreaField, TextField } from "../components/ui/FormField";
 import { Modal } from "../components/ui/Modal";
+import { HUES } from "../lib/colors";
 
 function emptyQuestion(): SurveyQuestionInput {
   return { question_text: "", question_type: "short_text", options: null, required: true };
@@ -325,12 +326,16 @@ export function SurveyManagementPage() {
             <p className="text-sm text-ink-muted">No surveys yet - create one to get started.</p>
           )}
           {surveys?.map((survey) => (
-            <Card key={survey.id} className="flex items-center justify-between">
+            <Card
+              key={survey.id}
+              accent={survey.is_published ? HUES.green : HUES.gray}
+              className="flex items-center justify-between"
+            >
               <div>
                 <div className="flex items-center gap-2">
                   <p className="font-semibold text-ink">{survey.title}</p>
                   <Badge
-                    color={survey.is_published ? "#4ade80" : "#9ca3af"}
+                    color={survey.is_published ? HUES.green : HUES.gray}
                     label={survey.is_published ? "Published" : "Draft"}
                   />
                 </div>

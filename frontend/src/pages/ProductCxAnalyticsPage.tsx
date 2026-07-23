@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { DateRangeFilter } from "../components/DateRangeFilter";
 import { FeedbackMetricCharts } from "../components/FeedbackMetricCharts";
 import { ThemeCharts } from "../components/ThemeCharts";
+import { BRAND_ACCENT } from "../lib/colors";
 import { useDateRangeFilter } from "../lib/dateRange";
 import { Card } from "../components/ui/Card";
 import { ErrorBanner, ErrorMessage, Spinner } from "../components/ui/Feedback";
@@ -28,7 +29,7 @@ export function ProductCxAnalyticsPage() {
 
       {metrics && (
         <>
-          <Card>
+          <Card accent={BRAND_ACCENT}>
             <p className="text-sm text-ink-muted">Total Feedback</p>
             <p className="mt-1 text-3xl font-bold text-ink">{metrics.total_feedback}</p>
           </Card>

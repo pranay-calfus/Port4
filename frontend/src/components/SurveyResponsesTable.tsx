@@ -89,7 +89,7 @@ export function SurveyResponsesTable({
                 setSurveyId(e.target.value);
                 setQuestionId("");
               }}
-              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink"
+              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand"
             >
               <option value="">All</option>
               {surveys?.map((s) => (
@@ -120,7 +120,7 @@ export function SurveyResponsesTable({
             <select
               value={rating}
               onChange={(e) => setRating(e.target.value)}
-              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink"
+              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand"
             >
               <option value="">All</option>
               {[1, 2, 3, 4, 5].map((r) => (
@@ -136,7 +136,7 @@ export function SurveyResponsesTable({
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink"
+              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand"
             />
           </div>
           <div>
@@ -145,7 +145,7 @@ export function SurveyResponsesTable({
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink"
+              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand"
             />
           </div>
         </div>

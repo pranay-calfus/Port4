@@ -20,7 +20,7 @@ export function Tabs({ tabs, defaultKey }: { tabs: Tab[]; defaultKey?: string })
             onClick={() => setActive(tab.key)}
             className={`-mb-px border-b-2 px-1 pb-3 text-sm font-medium transition-colors ${
               tab.key === activeTab?.key
-                ? "border-ink text-ink"
+                ? "border-brand text-ink"
                 : "border-transparent text-ink-muted hover:text-ink"
             }`}
           >

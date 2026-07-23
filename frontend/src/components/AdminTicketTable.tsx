@@ -4,9 +4,10 @@ import { Link } from "react-router-dom";
 import { adminDeleteTicket, adminListTickets } from "../api/client";
 import { PRIORITIES, TICKET_STATUSES, type TicketOut } from "../api/types";
 import { useAuth } from "../context/AuthContext";
-import { statusLabel } from "../lib/colors";
+import { PRIORITY_COLORS, STATUS_COLORS, statusLabel } from "../lib/colors";
 import { formatDateTime } from "../lib/format";
 import { Accordion } from "./ui/Accordion";
+import { Badge } from "./ui/Badge";
 import { Button } from "./ui/Button";
 import { ErrorBanner, ErrorMessage, Spinner } from "./ui/Feedback";
 import { Modal } from "./ui/Modal";
@@ -54,7 +55,7 @@ export function AdminTicketTable({ departmentFilter }: { departmentFilter?: stri
             <select
               value={priority}
               onChange={(e) => setPriority(e.target.value)}
-              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink"
+              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand"
             >
               <option value="All">All</option>
               {PRIORITIES.map((p) => (
@@ -69,7 +70,7 @@ export function AdminTicketTable({ departmentFilter }: { departmentFilter?: stri
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
-              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink"
+              className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-ink focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand"
             >
               <option value="All">All</option>
               {TICKET_STATUSES.map((s) => (
@@ -119,8 +120,15 @@ export function AdminTicketTable({ departmentFilter }: { departmentFilter?: stri
                       <td className="px-4 py-3 text-ink">{ticket.ticket_number}</td>
                       <td className="px-4 py-3 text-ink">{ticket.title}</td>
                       <td className="px-4 py-3 text-ink-muted">{ticket.department}</td>
-                      <td className="px-4 py-3 text-ink-muted">{ticket.priority}</td>
-                      <td className="px-4 py-3 text-ink-muted">{statusLabel(ticket.status)}</td>
+                      <td className="px-4 py-3">
+                        <Badge
+                          color={PRIORITY_COLORS[ticket.priority as keyof typeof PRIORITY_COLORS] ?? "#9ca3af"}
+                          label={ticket.priority}
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge color={STATUS_COLORS[ticket.status]} label={statusLabel(ticket.status)} />
+                      </td>
                       <td className="px-4 py-3 whitespace-nowrap text-ink-muted">
                         {formatDateTime(ticket.created_at)}
                       </td>

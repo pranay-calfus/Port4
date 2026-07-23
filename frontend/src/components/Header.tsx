@@ -9,8 +9,13 @@ export function Header() {
   return (
     <>
       <header className="flex items-center justify-between border-b border-surface-border px-6 py-4">
-        <div className="flex items-center gap-2">
-          <span className="text-xl">🎟️</span>
+        <div className="flex items-center gap-2.5">
+          <span
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-lg"
+            style={{ backgroundColor: "color-mix(in srgb, var(--color-brand) 14%, transparent)" }}
+          >
+            🎟️
+          </span>
           <span className="text-lg font-bold text-ink">TickTrack</span>
         </div>
         <div className="flex items-center gap-3">

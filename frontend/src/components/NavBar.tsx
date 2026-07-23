@@ -3,7 +3,11 @@ import { useAuth } from "../context/AuthContext";
 import { isSuperAdmin } from "../lib/roles";
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
-  `text-sm ${isActive ? "font-semibold text-ink" : "text-ink-muted hover:text-ink"}`;
+  `border-b-2 pb-0.5 text-sm transition-colors ${
+    isActive
+      ? "border-brand font-semibold text-ink"
+      : "border-transparent text-ink-muted hover:border-surface-border hover:text-ink"
+  }`;
 
 function NavSection({ label, links }: { label: string; links: { to: string; text: string }[] }) {
   return (

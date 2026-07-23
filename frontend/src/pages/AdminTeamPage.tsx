@@ -9,6 +9,7 @@ import { Card, CardLabel } from "../components/ui/Card";
 import { ErrorBanner, ErrorMessage, Spinner, SuccessBanner } from "../components/ui/Feedback";
 import { SelectField, TextField } from "../components/ui/FormField";
 import { Modal } from "../components/ui/Modal";
+import { BRAND_ACCENT } from "../lib/colors";
 
 export function AdminTeamPage() {
   const { token, identity } = useAuth();
@@ -72,7 +73,7 @@ export function AdminTeamPage() {
         <ErrorBanner message="Only super-admins can manage team accounts." />
       ) : (
         <>
-          <Card className="space-y-3">
+          <Card accent={BRAND_ACCENT} className="space-y-3">
             <CardLabel>Create a team account</CardLabel>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} />
