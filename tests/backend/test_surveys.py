@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 from backend.models import Role
 from backend.services import ticket_service
 
@@ -183,6 +185,38 @@ def test_survey_analytics_shape(client, db_session):
 
     choice_q = by_type["single_choice"]
     assert choice_q["most_common_answers"] == [{"answer": "A", "count": 2}]
+
+
+def test_survey_analytics_respects_date_range(client, db_session):
+    admin_headers = _admin_login(client, db_session, email="cx@example.com", role=Role.PRODUCT_CX)
+    survey = client.post("/surveys", headers=admin_headers, json=_all_types_payload()).json()
+    client.patch(f"/surveys/{survey['id']}/publish", headers=admin_headers)
+    questions_by_type = {q["question_type"]: q for q in survey["questions"]}
+
+    user_headers = _register_and_login(client)
+    answers = [
+        {"question_id": questions_by_type["short_text"]["id"], "value": "Nice"},
+        {"question_id": questions_by_type["rating"]["id"], "value": 4},
+        {"question_id": questions_by_type["single_choice"]["id"], "value": "A"},
+    ]
+    client.post(f"/surveys/{survey['id']}/responses", headers=user_headers, json={"answers": answers})
+
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    tomorrow = (datetime.now(UTC) + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    in_range = client.get(
+        f"/surveys/{survey['id']}/analytics",
+        headers=admin_headers,
+        params={"date_from": today, "date_to": today},
+    ).json()
+    assert in_range["total_responses"] == 1
+
+    out_of_range = client.get(
+        f"/surveys/{survey['id']}/analytics",
+        headers=admin_headers,
+        params={"date_from": tomorrow},
+    ).json()
+    assert out_of_range["total_responses"] == 0
 
 
 def test_dashboard_responses_filter_by_survey_and_rating(client, db_session):

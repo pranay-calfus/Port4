@@ -270,8 +270,8 @@ export function SurveyManagementPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-8">
-      <Link to="/product-cx" className="text-sm text-ink-muted hover:text-ink">
-        ← Back to Dashboard
+      <Link to="/product-cx/surveys" className="text-sm text-ink-muted hover:text-ink">
+        ← Back to Surveys
       </Link>
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-ink">Survey Management</h1>

@@ -123,7 +123,11 @@ class Ticket(Base):
     assigned_admin_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # A one-sentence, third-person restatement of the ticket - distinct
+    # from ai_reasoning below (which justifies the classification
+    # decision), mirroring Feedback.ai_summary/ai_reasoning's split.
     ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_category: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # A free-generated (not enum-constrained) recurring-problem-pattern
     # label, distinct from ai_category - see TicketRouteResult.theme in
@@ -141,8 +145,12 @@ class Ticket(Base):
     # against an admin's own manual-triage time in the admin dashboard's
     # "Manual Routing" comparison panel.
     ai_processing_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # index=True: every dashboard analytics query filters tickets by a
+    # created_at date range (see backend.services.ticket_service.
+    # list_tickets_for_admin) - see the "Shared Time-Range Filtering"
+    # feature.
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
     # Initial value only - kept current on every UPDATE by a DB trigger, see
     # User.updated_at above.
@@ -171,8 +179,11 @@ class Feedback(Base):
     ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # index=True: feedback_metrics/list_feedback filter by a created_at
+    # date range on every call - see the "Shared Time-Range Filtering"
+    # feature.
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
     # Initial value only - kept current on every UPDATE by a DB trigger, see
     # User.updated_at above.
@@ -224,14 +235,26 @@ class SurveyResponse(Base):
     __table_args__ = (UniqueConstraint("survey_id", "user_id", name="uq_survey_response_per_user"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    survey_id: Mapped[int] = mapped_column(ForeignKey("surveys.id", ondelete="CASCADE"))
+    # index=True: survey_analytics/list_responses filter by survey_id alone
+    # on every call - the composite unique index above only helps lookups
+    # that supply both survey_id and user_id.
+    survey_id: Mapped[int] = mapped_column(
+        ForeignKey("surveys.id", ondelete="CASCADE"), index=True
+    )
     # ondelete="CASCADE": unlike Ticket.user_id (a customer's tickets are
     # kept for support history even if the account is later removed), a
     # deleted user's survey responses carry no such requirement, so they're
     # simply removed with the account.
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    # index=True: list_active_surveys_for_user filters by user_id alone
+    # (not paired with survey_id), same reasoning as survey_id above.
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    # index=True: every dashboard/analytics query filters responses by a
+    # submitted_at date range - see the "Shared Time-Range Filtering"
+    # feature.
     submitted_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
 
 
@@ -239,11 +262,15 @@ class SurveyAnswer(Base):
     __tablename__ = "survey_answers"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # index=True: list_responses/survey_analytics both query answers via
+    # `.in_(response_ids)` - Postgres doesn't auto-index FK columns (only
+    # the referenced side), so this would otherwise be a sequential scan.
     response_id: Mapped[int] = mapped_column(
-        ForeignKey("survey_responses.id", ondelete="CASCADE")
+        ForeignKey("survey_responses.id", ondelete="CASCADE"), index=True
     )
+    # index=True: survey_analytics groups answers by question_id.
     question_id: Mapped[int] = mapped_column(
-        ForeignKey("survey_questions.id", ondelete="CASCADE")
+        ForeignKey("survey_questions.id", ondelete="CASCADE"), index=True
     )
     # A string (short_text/long_text/single_choice), an int 1-5 (rating), or
     # a list[str] (multiple_choice) - shape validated at the Pydantic layer

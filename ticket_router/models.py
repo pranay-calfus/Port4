@@ -106,6 +106,12 @@ class TicketRouteResult(BaseModel):
     # taxonomy. See "THEME RULES" in prompts.py for the generation rules
     # that keep this consistent enough to aggregate across tickets.
     theme: str = Field(min_length=1)
+    # A one-sentence, third-person restatement of what the customer said -
+    # distinct from `reasoning` (which justifies the classification
+    # decision) - the same "AI summary" capability FeedbackClassification.summary
+    # provides, kept consistent across both domains. See "SUMMARY RULES" in
+    # prompts.py.
+    summary: str = Field(min_length=1)
     reasoning: str = Field(min_length=1)
     confidence: float = Field(ge=0, le=1)
     # Not part of the AI's output contract - set by the routing service

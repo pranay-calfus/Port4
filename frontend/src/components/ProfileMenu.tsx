@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { initials } from "../lib/initials";
+import { isSuperAdmin as checkIsSuperAdmin } from "../lib/roles";
 import { Button } from "./ui/Button";
 
 export function ProfileMenu() {
@@ -19,13 +20,15 @@ export function ProfileMenu() {
 
   if (!identity) return null;
 
-  const isSuperAdmin = identity.role === "ADMIN" && identity.department == null;
+  const superAdmin = checkIsSuperAdmin(identity);
   const scopeLabel =
     identity.role === "ADMIN"
       ? identity.department
         ? `Scope: ${identity.department}`
         : "Scope: All departments (super-admin)"
-      : "Customer account";
+      : identity.role === "PRODUCT_CX"
+        ? "Product & CX account"
+        : "Customer account";
 
   return (
     <div ref={ref} className="relative">
@@ -41,7 +44,7 @@ export function ProfileMenu() {
           <p className="font-semibold text-ink">{identity.name}</p>
           <p className="text-xs text-ink-muted">{identity.email}</p>
           <p className="mt-1 text-xs text-ink-muted">{scopeLabel}</p>
-          {isSuperAdmin && (
+          {superAdmin && (
             <Link
               to="/admin/team"
               onClick={() => setOpen(false)}

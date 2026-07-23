@@ -41,6 +41,10 @@ ROUTE_TICKET_TOOL: dict[str, Any] = {
                         "reusable phrasing over hyper-specific one-off wording."
                     ),
                 },
+                "summary": {
+                    "type": "string",
+                    "description": "A one-sentence AI-generated summary of the ticket.",
+                },
                 "reasoning": {
                     "type": "string",
                     "description": "One sentence justifying the decision, citing a specific signal from the ticket.",
@@ -53,6 +57,7 @@ ROUTE_TICKET_TOOL: dict[str, Any] = {
                 "assignedTeam",
                 "emotion",
                 "theme",
+                "summary",
                 "reasoning",
                 "confidence",
             ],

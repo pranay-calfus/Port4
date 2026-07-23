@@ -167,6 +167,7 @@ class TicketOut(BaseModel):
     status: TicketStatus
     assigned_admin_id: int | None
     ai_summary: str | None
+    ai_reasoning: str | None
     ai_category: str | None
     theme: str | None
     ai_emotion: str | None

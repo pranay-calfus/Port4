@@ -11,6 +11,7 @@ def _fake_result(category, team, priority="High", confidence=0.9):
         assignedTeam=team,
         emotion="Neutral",
         theme="test theme",
+        summary="test summary",
         reasoning="test",
         confidence=confidence,
     )

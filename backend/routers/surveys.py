@@ -114,9 +114,14 @@ def unpublish_survey(survey_id: int, _admin: dict = Depends(require_feedback_acc
 
 
 @router.get("/{survey_id}/analytics")
-def survey_analytics(survey_id: int, _admin: dict = Depends(require_feedback_access)) -> dict:
+def survey_analytics(
+    survey_id: int,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    _admin: dict = Depends(require_feedback_access),
+) -> dict:
     _get_survey_or_404(survey_id)
-    return survey_service.survey_analytics(client, survey_id)
+    return survey_service.survey_analytics(client, survey_id, date_from=date_from, date_to=date_to)
 
 
 @router.post(

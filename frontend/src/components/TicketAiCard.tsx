@@ -63,9 +63,15 @@ export function TicketAiCard({ ticket }: { ticket: TicketDetailOut }) {
         </div>
       )}
       <Card>
-        <CardLabel>Reason</CardLabel>
+        <CardLabel>Summary</CardLabel>
         <p className="text-sm text-ink">{ticket.ai_summary}</p>
       </Card>
+      {ticket.ai_reasoning && (
+        <Card>
+          <CardLabel>Reasoning</CardLabel>
+          <p className="text-sm text-ink">{ticket.ai_reasoning}</p>
+        </Card>
+      )}
       <div className="flex justify-between text-xs text-ink-muted">
         <span>{ticket.ticket_number}</span>
         <span>Created {formatDateTime(ticket.created_at)}</span>

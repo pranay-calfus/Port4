@@ -44,8 +44,7 @@ export function AdminTicketTable({ departmentFilter }: { departmentFilter?: stri
     <div className="space-y-4">
       {departmentFilter && (
         <p className="text-xs text-ink-muted">
-          Pinned to <strong>{departmentFilter}</strong> - change the team on the Dashboard tab to
-          switch.
+          Pinned to <strong>{departmentFilter}</strong> - change the team filter above to switch.
         </p>
       )}
       <Accordion title="Filters" defaultOpen storageKey="admin-ticket-filters">

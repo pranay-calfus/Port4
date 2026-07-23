@@ -302,8 +302,15 @@ export function adminListSurveyResponses(token: string, filters: SurveyResponseF
   return request<SurveyResponse[]>("GET", "/surveys/responses", { token, query: filters });
 }
 
-export function adminSurveyAnalytics(token: string, surveyId: number) {
-  return request<SurveyAnalytics>("GET", `/surveys/${surveyId}/analytics`, { token });
+export function adminSurveyAnalytics(
+  token: string,
+  surveyId: number,
+  dateRange: { date_from?: string; date_to?: string } = {}
+) {
+  return request<SurveyAnalytics>("GET", `/surveys/${surveyId}/analytics`, {
+    token,
+    query: dateRange,
+  });
 }
 
 export function listActiveSurveys(token: string) {

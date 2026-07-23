@@ -28,7 +28,13 @@ function RatingDistribution({ distribution }: { distribution: Record<string, num
   );
 }
 
-export function SurveyAnalyticsCharts() {
+export function SurveyAnalyticsCharts({
+  dateFrom,
+  dateTo,
+}: {
+  dateFrom?: string;
+  dateTo?: string;
+}) {
   const { token } = useAuth();
   const [surveyId, setSurveyId] = useState("");
 
@@ -39,8 +45,8 @@ export function SurveyAnalyticsCharts() {
   });
 
   const { data: analytics, isLoading, error } = useQuery({
-    queryKey: ["survey-analytics", surveyId],
-    queryFn: () => adminSurveyAnalytics(token!, Number(surveyId)),
+    queryKey: ["survey-analytics", surveyId, dateFrom, dateTo],
+    queryFn: () => adminSurveyAnalytics(token!, Number(surveyId), { date_from: dateFrom, date_to: dateTo }),
     enabled: !!token && !!surveyId,
   });
 

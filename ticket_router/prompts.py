@@ -59,6 +59,38 @@ CATEGORY_DEFINITIONS: dict[str, str] = {
 }
 
 
+def _render_definitions(items: tuple[str, ...], definitions: dict[str, str]) -> str:
+    """Renders a '- item: definition' block for a fixed-choice rules
+    section (category/emotion/sentiment...) - the one shared shape behind
+    every "choose exactly one X from this fixed list" section in both the
+    ticket and feedback prompts below, so a new fixed-choice dimension
+    only needs a definitions dict, not a hand-written render loop.
+    """
+    return "\n".join(f"- {item}: {definitions[item]}" for item in items)
+
+
+def _theme_rules_block(*, noun: str, examples: list[str]) -> str:
+    """The THEME RULES section shared verbatim (parameterized by domain
+    noun/examples) between the ticket and feedback prompts - recurring
+    theme generation is one of this app's canonical AI capabilities and
+    should behave identically regardless of which domain is asking for it.
+    """
+    example_text = ", ".join(f'"{e}"' for e in examples)
+    return f"""# THEME RULES
+Assign a short (2-4 word) theme label naming the specific recurring problem/topic pattern this {noun} belongs to - e.g. {example_text}. Theme is NOT restricted to a fixed list - generate whatever label best fits, since the goal is to let genuinely new recurring patterns emerge over time without needing a code change.
+
+Theme is a different axis from category: category is the {noun}'s fixed administrative bucket, theme is the specific pattern that can recur within or across categories - and since tickets and feedback share this same theme concept, a theme can in principle recur across both.
+
+Consistency matters more than precision: prefer general, reusable phrasing (e.g. one of the examples above) over hyper-specific one-off wording, so genuinely similar {noun}s converge on the same theme label instead of fragmenting into near-duplicates."""
+
+
+# The AI summary generation step, shared verbatim between the ticket and
+# feedback prompts - another canonical AI capability that should read the
+# same regardless of domain.
+_SUMMARY_RULES_BLOCK = """# SUMMARY RULES
+Write exactly one sentence summarizing what the customer said, in the third person, without editorializing."""
+
+
 class FewShotExample:
     def __init__(self, ticket: str, output: TicketRouteResult) -> None:
         self.ticket = ticket
@@ -77,6 +109,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             assignedTeam="Support Team",
             emotion="Frustrated",
             theme="Password Reset",
+            summary="The customer cannot reset their password because the reset link in their email isn't working.",
             reasoning="User cannot reset their password via the normal flow, which is an account access issue but not a security incident.",
             confidence=0.93,
         ),
@@ -89,6 +122,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             assignedTeam="Billing Team",
             emotion="Disappointed",
             theme="Refund Request",
+            summary="The customer requests a refund for order #55210, which arrived damaged and has already been returned.",
             reasoning="Customer explicitly requests a refund for a returned, damaged item.",
             confidence=0.95,
         ),
@@ -101,6 +135,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             assignedTeam="Engineering",
             emotion="Worried",
             theme="Service Outage",
+            summary="The customer reports a critical production outage that has blocked all of their customers for 15 minutes.",
             reasoning="An active production outage affecting all customers is a critical, high-urgency infrastructure issue.",
             confidence=0.98,
         ),
@@ -113,6 +148,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             assignedTeam="QA",
             emotion="Angry",
             theme="App Crash",
+            summary="The customer reports the app crashing every time they open it since the latest update, making it unusable.",
             reasoning="A reproducible crash making the app unusable is a bug report, and bug reports are always treated as high priority.",
             confidence=0.9,
         ),
@@ -125,6 +161,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             assignedTeam="Billing Team",
             emotion="Frustrated",
             theme="Billing Error",
+            summary="The customer was charged $49.99 twice for the same subscription and wants the duplicate charge refunded.",
             reasoning="A duplicate charge is a payment error, which is always treated as high priority regardless of the amount.",
             confidence=0.96,
         ),
@@ -137,6 +174,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             assignedTeam="Support Team",
             emotion="Frustrated",
             theme="Login Issues",
+            summary="The customer cannot log in despite using the correct password and needs urgent access to work.",
             reasoning="Complete inability to log in blocks the user from working, which the priority rules classify as high urgency.",
             confidence=0.92,
         ),
@@ -149,6 +187,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             assignedTeam="Engineering",
             emotion="Neutral",
             theme="Feature Requests",
+            summary="The customer suggests adding a dark mode option to the dashboard for nighttime use.",
             reasoning="This is a non-urgent enhancement suggestion with no functional impact on the current product.",
             confidence=0.94,
         ),
@@ -161,6 +200,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             assignedTeam="Logistics",
             emotion="Worried",
             theme="Delivery Delay",
+            summary="The customer's package is 4 days late with no tracking movement and they want to know when it will arrive.",
             reasoning="A stalled delivery is a shipping delay affecting the customer but not a critical safety or financial issue.",
             confidence=0.91,
         ),
@@ -173,6 +213,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             assignedTeam="Engineering",
             emotion="Frustrated",
             theme="API Errors",
+            summary="The customer's integration is broken because the /v1/orders API endpoint has been returning 500 errors for an hour.",
             reasoning="A broken production API endpoint actively disrupting a customer integration is a high-urgency technical issue.",
             confidence=0.95,
         ),
@@ -185,6 +226,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             assignedTeam="Security Team",
             emotion="Worried",
             theme="Account Compromise",
+            summary="The customer suspects their account was compromised after receiving an email about a password change they didn't make.",
             reasoning="An unauthorized account change strongly suggests a security breach, which is always treated as high priority.",
             confidence=0.93,
         ),
@@ -197,6 +239,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             assignedTeam="Billing Team",
             emotion="Neutral",
             theme="Subscription Cancellation",
+            summary="The customer wants their subscription cancelled immediately to avoid being billed next cycle.",
             reasoning="A subscription cancellation request is a standard billing action with no urgent safety or outage component.",
             confidence=0.95,
         ),
@@ -209,6 +252,7 @@ FEW_SHOT_EXAMPLES: list[FewShotExample] = [
             assignedTeam="Billing Team",
             emotion="Worried",
             theme="Billing Error",
+            summary="The customer's invoice INV-3391 shows a charge that is $25 higher than the plan they signed up for.",
             reasoning="An invoiced amount that doesn't match the customer's plan is a payment error, which is always treated as high priority.",
             confidence=0.92,
         ),
@@ -225,8 +269,12 @@ def _render_few_shot_block() -> str:
 
 
 def _build_system_prompt() -> str:
-    category_lines = "\n".join(f"- {c}: {CATEGORY_DEFINITIONS[c]}" for c in CATEGORIES)
-    emotion_lines = "\n".join(f"- {e}: {EMOTION_DEFINITIONS[e]}" for e in EMOTIONS)
+    category_lines = _render_definitions(CATEGORIES, CATEGORY_DEFINITIONS)
+    emotion_lines = _render_definitions(EMOTIONS, EMOTION_DEFINITIONS)
+    theme_rules = _theme_rules_block(
+        noun="ticket",
+        examples=["Login Issues", "Payment Failure", "Delivery Delay", "App Crash", "Service Outage"],
+    )
 
     return f"""
 # ROLE
@@ -239,8 +287,9 @@ For every customer support message you receive, determine:
 3. The team that should handle it
 4. The customer's dominant emotional tone
 5. The recurring theme this ticket belongs to
-6. A one-line reasoning that justifies your choices
-7. Your confidence in this classification, from 0 to 1
+6. A one-sentence AI-generated summary of the ticket
+7. A one-line reasoning that justifies your choices
+8. Your confidence in this classification, from 0 to 1
 
 # CLASSIFICATION RULES
 Choose exactly one category from this fixed list:
@@ -273,12 +322,9 @@ Identify the customer's dominant emotional tone from this fixed list:
 
 Base this purely on the tone of the message itself, independent of category/priority - a High priority ticket can be calmly worded (Neutral) and a Low priority one can be irritated (Frustrated). Pick exactly one label; when a message shows more than one emotion, choose the most dominant one.
 
-# THEME RULES
-Assign a short (2-4 word) theme label naming the specific recurring problem pattern this ticket belongs to - e.g. "Login Issues", "Payment Failure", "Delivery Delay", "App Crash", "Service Outage". Theme is NOT restricted to a fixed list - generate whatever label best fits, since the goal is to let genuinely new recurring patterns emerge over time without needing a code change.
+{theme_rules}
 
-Theme is a different axis from category: category is the ticket's fixed administrative bucket, theme is the specific underlying pattern within (or across) categories that this ticket, and others like it, share - e.g. two Account Access tickets can have different themes ("Password Reset" vs. "MFA Problems"), and the same theme ("Billing Error") can span tickets classified under different categories.
-
-Consistency matters more than precision: prefer general, reusable phrasing ("Login Issues") over hyper-specific one-off wording ("Login Issues With Safari Autofill On Shared Devices"), so that genuinely similar problems across different tickets converge on the same theme label instead of fragmenting into near-duplicates.
+{_SUMMARY_RULES_BLOCK}
 
 # REASONING RULES
 Write exactly one sentence of reasoning. It must cite the specific phrase or signal in the ticket that drove your decision (e.g. "the user explicitly says they cannot log in at all"). Do not restate the category name without justification.
@@ -299,6 +345,7 @@ You must respond by calling the "route_ticket" tool exactly once, with an input 
   "assignedTeam": one of {json.dumps(list(ASSIGNED_TEAMS))},
   "emotion": one of {json.dumps(list(EMOTIONS))},
   "theme": "a short (2-4 word) recurring-problem-pattern label, not restricted to a fixed list",
+  "summary": "one sentence summarizing the ticket",
   "reasoning": "one sentence explaining your decision",
   "confidence": a number between 0 and 1
 }}
@@ -508,8 +555,12 @@ def _render_feedback_few_shot_block() -> str:
 
 
 def _build_feedback_classification_system_prompt() -> str:
-    category_lines = "\n".join(f"- {c}: {FEEDBACK_CATEGORY_DEFINITIONS[c]}" for c in FEEDBACK_CATEGORIES)
-    sentiment_lines = "\n".join(f"- {s}: {FEEDBACK_SENTIMENT_DEFINITIONS[s]}" for s in FEEDBACK_SENTIMENTS)
+    category_lines = _render_definitions(FEEDBACK_CATEGORIES, FEEDBACK_CATEGORY_DEFINITIONS)
+    sentiment_lines = _render_definitions(FEEDBACK_SENTIMENTS, FEEDBACK_SENTIMENT_DEFINITIONS)
+    theme_rules = _theme_rules_block(
+        noun="feedback",
+        examples=["UI Improvements", "Feature Requests", "Positive Experience", "Pricing Feedback", "Slow Loading"],
+    )
 
     return f"""
 # ROLE
@@ -539,15 +590,9 @@ Assign exactly one team from this fixed list, based on category (use judgment wh
 - Sales Team: Pricing
 - Customer Success: Customer Support Experience, General Praise, or anything ambiguous/cross-cutting
 
-# THEME RULES
-Assign a short (2-4 word) theme label naming the specific recurring pattern this feedback belongs to - e.g. "UI Improvements", "Feature Requests", "Positive Experience", "Pricing Feedback", "Slow Loading". Theme is NOT restricted to a fixed list - generate whatever label best fits, since the goal is to let genuinely new recurring patterns emerge over time without a code change.
+{theme_rules}
 
-Theme is a different axis from category: category is feedback's fixed administrative bucket, theme is the specific pattern that can recur across different categories (e.g. "Positive Experience" can apply to General Praise or Customer Support Experience feedback alike) - and, since tickets are themed the same way, a theme can in principle recur across both tickets and feedback.
-
-Consistency matters more than precision: prefer general, reusable phrasing over hyper-specific one-off wording, so genuinely similar feedback converges on the same theme label instead of fragmenting into near-duplicates.
-
-# SUMMARY RULES
-Write exactly one sentence summarizing what the customer said, in the third person, without editorializing.
+{_SUMMARY_RULES_BLOCK}
 
 # REASONING RULES
 Write exactly one sentence of reasoning citing the specific phrase or signal that drove your sentiment/category/team choices.

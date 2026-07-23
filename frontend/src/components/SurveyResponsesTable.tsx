@@ -9,11 +9,20 @@ import { Button } from "./ui/Button";
 import { ErrorBanner, ErrorMessage, Spinner } from "./ui/Feedback";
 import { Modal } from "./ui/Modal";
 
-export function SurveyResponsesTable() {
+export function SurveyResponsesTable({
+  defaultDateFrom,
+  defaultDateTo,
+}: {
+  defaultDateFrom?: string;
+  defaultDateTo?: string;
+}) {
   const { token } = useAuth();
   const [surveyId, setSurveyId] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  // Seeded from the Surveys tab's shared time-range control, but stays
+  // independently adjustable here - this table's date fields are a
+  // row-level refinement of the shared range, not a duplicate of it.
+  const [dateFrom, setDateFrom] = useState(defaultDateFrom ?? "");
+  const [dateTo, setDateTo] = useState(defaultDateTo ?? "");
   const [rating, setRating] = useState("");
   const [questionId, setQuestionId] = useState("");
   const [userSearch, setUserSearch] = useState("");

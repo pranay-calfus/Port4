@@ -54,6 +54,7 @@ def _stub_as_ticket(monkeypatch):
         assignedTeam="Billing Team",
         emotion="Frustrated",
         theme="Billing Error",
+        summary="test summary",
         reasoning="test",
         confidence=0.9,
     )

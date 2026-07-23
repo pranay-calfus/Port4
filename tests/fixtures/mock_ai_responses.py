@@ -7,6 +7,7 @@ VALID_RESPONSES: list[dict] = [
         "assignedTeam": "Billing Team",
         "emotion": "Frustrated",
         "theme": "Billing Error",
+        "summary": "Summary of the issue.",
         "reasoning": "Customer was charged twice for the same subscription.",
         "confidence": 0.95,
     },
@@ -16,6 +17,7 @@ VALID_RESPONSES: list[dict] = [
         "assignedTeam": "Engineering",
         "emotion": "Worried",
         "theme": "API Errors",
+        "summary": "Summary of the issue.",
         "reasoning": "Production API endpoint is returning 500 errors.",
         "confidence": 0.97,
     },
@@ -25,6 +27,7 @@ VALID_RESPONSES: list[dict] = [
         "assignedTeam": "Security Team",
         "emotion": "Worried",
         "theme": "Account Compromise",
+        "summary": "Summary of the issue.",
         "reasoning": "Customer reports an unauthorized password change.",
         "confidence": 0.93,
     },
@@ -34,6 +37,7 @@ VALID_RESPONSES: list[dict] = [
         "assignedTeam": "Engineering",
         "emotion": "Neutral",
         "theme": "Feature Requests",
+        "summary": "Summary of the issue.",
         "reasoning": "Customer suggests adding a dark mode theme.",
         "confidence": 0.9,
     },
@@ -43,6 +47,7 @@ VALID_RESPONSES: list[dict] = [
         "assignedTeam": "Support Team",
         "emotion": "Frustrated",
         "theme": "Login Issues",
+        "summary": "Summary of the issue.",
         "reasoning": "Customer cannot log in at all and needs urgent access.",
         "confidence": 0.88,
     },
@@ -52,6 +57,7 @@ VALID_RESPONSES: list[dict] = [
         "assignedTeam": "Billing Team",
         "emotion": "Frustrated",
         "theme": "Refund Request",
+        "summary": "Summary of the issue.",
         "reasoning": "Customer requests a refund for a returned damaged item.",
         "confidence": 0.94,
     },
@@ -61,6 +67,7 @@ VALID_RESPONSES: list[dict] = [
         "assignedTeam": "Logistics",
         "emotion": "Worried",
         "theme": "Delivery Delay",
+        "summary": "Summary of the issue.",
         "reasoning": "Delivery is delayed with no tracking updates.",
         "confidence": 0.91,
     },
@@ -70,6 +77,7 @@ VALID_RESPONSES: list[dict] = [
         "assignedTeam": "Sales Team",
         "emotion": "Neutral",
         "theme": "Pricing Inquiry",
+        "summary": "Summary of the issue.",
         "reasoning": "Customer is asking about enterprise pricing options.",
         "confidence": 0.89,
     },
@@ -79,6 +87,7 @@ VALID_RESPONSES: list[dict] = [
         "assignedTeam": "QA",
         "emotion": "Angry",
         "theme": "App Crash",
+        "summary": "Summary of the issue.",
         "reasoning": "App crashes on launch after the latest update.",
         "confidence": 0.9,
     },
@@ -88,6 +97,7 @@ VALID_RESPONSES: list[dict] = [
         "assignedTeam": "Support Team",
         "emotion": "Neutral",
         "theme": "General Inquiry",
+        "summary": "Summary of the issue.",
         "reasoning": "Customer is asking about support hours with no urgency.",
         "confidence": 0.86,
     },
@@ -99,6 +109,7 @@ MALFORMED_MISSING_FIELD = {
     "assignedTeam": "Billing Team",
     "emotion": "Neutral",
     "theme": "Billing Error",
+    "summary": "Summary of the issue.",
     "confidence": 0.9,
     # reasoning missing
 }
@@ -109,6 +120,7 @@ MALFORMED_INVALID_CATEGORY = {
     "assignedTeam": "Billing Team",
     "emotion": "Neutral",
     "theme": "Billing Error",
+    "summary": "Summary of the issue.",
     "reasoning": "Some reason.",
     "confidence": 0.9,
 }
@@ -119,6 +131,7 @@ MALFORMED_INVALID_EMOTION = {
     "assignedTeam": "Billing Team",
     "emotion": "Ecstatic",
     "theme": "Billing Error",
+    "summary": "Summary of the issue.",
     "reasoning": "Some reason.",
     "confidence": 0.9,
 }
@@ -129,6 +142,7 @@ MALFORMED_CONFIDENCE_OUT_OF_RANGE = {
     "assignedTeam": "Billing Team",
     "emotion": "Neutral",
     "theme": "Billing Error",
+    "summary": "Summary of the issue.",
     "reasoning": "Some reason.",
     "confidence": 1.5,
 }
@@ -139,6 +153,7 @@ MALFORMED_CONFIDENCE_AS_STRING = {
     "assignedTeam": "Billing Team",
     "emotion": "Neutral",
     "theme": "Billing Error",
+    "summary": "Summary of the issue.",
     "reasoning": "Some reason.",
     "confidence": "0.9",
 }
@@ -152,6 +167,7 @@ CODE_FENCED_JSON = (
             "assignedTeam": "Billing Team",
             "emotion": "Neutral",
             "theme": "Billing Error",
+            "summary": "Summary of the issue.",
             "reasoning": "Some reason.",
             "confidence": 0.9,
         }
@@ -161,7 +177,8 @@ CODE_FENCED_JSON = (
 
 TRAILING_COMMA_JSON = (
     '{"category":"Billing","priority":"Medium","assignedTeam":"Billing Team",'
-    '"emotion":"Neutral","theme":"Billing Error","reasoning":"Some reason.","confidence":0.9,}'
+    '"emotion":"Neutral","theme":"Billing Error","summary":"Summary of the issue.",'
+    '"reasoning":"Some reason.","confidence":0.9,}'
 )
 
 PROSE_WRAPPED_JSON = (
@@ -173,6 +190,7 @@ PROSE_WRAPPED_JSON = (
             "assignedTeam": "Billing Team",
             "emotion": "Neutral",
             "theme": "Billing Error",
+            "summary": "Summary of the issue.",
             "reasoning": "Some reason.",
             "confidence": 0.9,
         }

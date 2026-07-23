@@ -159,6 +159,7 @@ export interface TicketOut {
   status: TicketStatus;
   assigned_admin_id: number | null;
   ai_summary: string | null;
+  ai_reasoning: string | null;
   ai_category: string | null;
   theme: string | null;
   ai_emotion: string | null;

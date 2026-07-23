@@ -264,10 +264,16 @@ def list_responses(
     ]
 
 
-def survey_analytics(client: Client, survey_id: int) -> dict:
+def survey_analytics(
+    client: Client, survey_id: int, *, date_from: str | None = None, date_to: str | None = None
+) -> dict:
     questions = _questions_for(client, survey_id)
-    response_ids = client.table("survey_responses").select("id").eq("survey_id", survey_id).execute().data
-    response_ids = [r["id"] for r in response_ids]
+    query = client.table("survey_responses").select("id").eq("survey_id", survey_id)
+    if date_from:
+        query = query.gte("submitted_at", date_from)
+    if date_to:
+        query = query.lte("submitted_at", _end_of_day(date_to))
+    response_ids = [r["id"] for r in query.execute().data]
     answers = (
         client.table("survey_answers").select("*").in_("response_id", response_ids).execute().data
         if response_ids

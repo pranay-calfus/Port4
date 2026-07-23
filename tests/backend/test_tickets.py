@@ -61,6 +61,7 @@ def _fake_route_ticket_success(monkeypatch):
         assignedTeam="Billing Team",
         emotion="Frustrated",
         theme="Billing Error",
+        summary="Customer reports being charged twice for the same subscription.",
         reasoning="Customer reports a duplicate charge on their invoice.",
         confidence=0.95,
     )
@@ -114,6 +115,8 @@ def test_escalate_creates_ticket_with_ai_categorization(client, monkeypatch):
     assert ticket["priority"] == "High"
     assert ticket["ai_category"] == "Billing"
     assert ticket["theme"] == "Billing Error"
+    assert ticket["ai_summary"] == "Customer reports being charged twice for the same subscription."
+    assert ticket["ai_reasoning"] == "Customer reports a duplicate charge on their invoice."
     assert ticket["ai_emotion"] == "Frustrated"
     assert ticket["ai_processing_ms"] is not None and ticket["ai_processing_ms"] >= 0
     assert [a["event_type"] for a in ticket["activity"]] == [
