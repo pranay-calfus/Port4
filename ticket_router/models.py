@@ -198,6 +198,29 @@ class FeedbackClassification(BaseModel):
     model_used: str | None = Field(default=None, exclude=True)
 
 
+class WeeklySummaryResult(BaseModel):
+    """The AI output contract for the weekly feedback insight report (see
+    ticket_router.services.weekly_summary_service.generate_weekly_narrative)
+    - a narrative synthesis over already-aggregated feedback metrics for a
+    7-day period, not a per-item classification like TicketRouteResult/
+    FeedbackClassification above. `risks`/`positive_highlights` are allowed
+    to be empty (a quiet week can genuinely have neither), but
+    `key_insights`/`recommendations` are always required - there is always
+    at least one specific observation and one actionable next step to draw
+    from a week that had any feedback at all.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    overview: str = Field(min_length=1)
+    overall_sentiment: str = Field(min_length=1)
+    key_insights: list[str] = Field(min_length=1)
+    risks: list[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(min_length=1)
+    positive_highlights: list[str] = Field(default_factory=list)
+    model_used: str | None = Field(default=None, exclude=True)
+
+
 class TicketRequest(BaseModel):
     message: str = Field(min_length=1)
 

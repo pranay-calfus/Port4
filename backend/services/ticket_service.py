@@ -19,6 +19,7 @@ from supabase import Client
 
 from backend.auth import hash_password, verify_password
 from backend.models import Role, SenderType, TicketStatus
+from backend.services.theme_normalization import group_themes
 from ticket_router.errors import AppError
 from ticket_router.models import NO_STATUS_CHANGE
 from ticket_router.services.agent_service import chat_with_department, chat_with_general_agent
@@ -740,15 +741,19 @@ def _tally(tickets: list[dict], key) -> dict[str, int]:
 
 
 def _top_themes(items: list[dict], *, top_n: int = 10) -> list[dict]:
-    """Ranks free-generated `theme` values by frequency, capped at `top_n`
-    with the remainder folded into an "Other" bucket - themes are AI-
-    generated free text (see ticket_router.models.TicketRouteResult.theme),
-    so this pre-aggregation is what keeps the dashboard chart data bounded
-    instead of showing one bar per ever-so-slightly-different phrasing.
+    """Ranks `theme` values by frequency, capped at `top_n` with the
+    remainder folded into an "Other" bucket - themes are AI-generated free
+    text (see ticket_router.models.TicketRouteResult.theme), so raw values
+    are first merged into canonical buckets via
+    theme_normalization.group_themes (case/punctuation/whitespace/plural
+    variants and known synonyms - e.g. "Billing Error"/"Billing Errors"/
+    "Payment Issue" all count toward one "Billing Issues" bucket) before
+    ranking, so near-duplicate phrasings don't fragment into separate bars.
     Shared by ticket_service and feedback_service - both tickets and
     feedback rows have a `theme` column with the same shape.
     """
-    counts = _tally(items, lambda i: i["theme"])
+    raw_to_label = group_themes(items)
+    counts = _tally(items, lambda i: raw_to_label.get(i["theme"]) if i["theme"] is not None else None)
     ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
     top, rest = ranked[:top_n], ranked[top_n:]
     if rest:
@@ -760,15 +765,20 @@ def _theme_trend(
     items: list[dict], top_theme_names: list[str], *, date_key: str = "created_at"
 ) -> list[dict]:
     """Per-day counts of each of `top_theme_names` (everything else folded
-    into "Other"), for the dashboard's theme trend-over-time chart. Shared
-    by ticket_service and feedback_service.
+    into "Other"), for the dashboard's theme trend-over-time chart. Each
+    item's raw theme is mapped through the same canonical grouping
+    _top_themes uses (see theme_normalization.group_themes), so the trend
+    lines match the buckets `top_theme_names` was ranked by. Shared by
+    ticket_service and feedback_service.
     """
+    raw_to_label = group_themes(items)
     top_set = set(top_theme_names)
     by_date: dict[str, dict[str, int]] = {}
     for item in items:
         if item["theme"] is None:
             continue
-        bucket = item["theme"] if item["theme"] in top_set else "Other"
+        label = raw_to_label.get(item["theme"], item["theme"])
+        bucket = label if label in top_set else "Other"
         date_str = item[date_key][:10]
         by_date.setdefault(date_str, {}).setdefault(bucket, 0)
         by_date[date_str][bucket] += 1

@@ -21,3 +21,6 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "live_llm: hits the real OpenAI API - opt-in only, see tests/integration/test_feedback_classifier_live.py",
+]

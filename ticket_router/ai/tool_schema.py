@@ -232,3 +232,81 @@ CLASSIFY_FEEDBACK_TOOL: dict[str, Any] = {
         },
     },
 }
+
+GENERATE_WEEKLY_SUMMARY_TOOL_NAME = "generate_weekly_summary"
+
+# Forced tool call backing the weekly feedback report's narrative generation
+# (see ticket_router.services.weekly_summary_service) - the same
+# forced-tool-call shape as CLASSIFY_FEEDBACK_TOOL, but synthesizing prose
+# from pre-aggregated metrics for a 7-day period instead of classifying a
+# single piece of feedback.
+GENERATE_WEEKLY_SUMMARY_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": GENERATE_WEEKLY_SUMMARY_TOOL_NAME,
+        "description": (
+            "Write an executive weekly customer-feedback insight report from "
+            "pre-aggregated metrics."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "overview": {
+                    "type": "string",
+                    "description": (
+                        "2-4 sentence executive overview of the week's feedback volume and "
+                        "overall shape."
+                    ),
+                },
+                "overall_sentiment": {
+                    "type": "string",
+                    "description": (
+                        "1-2 sentences describing the sentiment mix, citing the actual "
+                        "percentages given in the input."
+                    ),
+                },
+                "key_insights": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "3-6 specific, concrete observations grounded in the themes/numbers "
+                        "given - never generic filler like 'customers had various issues'."
+                    ),
+                },
+                "risks": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Concerning patterns worth flagging. Leave empty if nothing genuinely "
+                        "stands out this week."
+                    ),
+                },
+                "recommendations": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "3-5 concrete, actionable next steps naming the team/theme they apply "
+                        "to - a VP of CX should be able to act on these immediately."
+                    ),
+                },
+                "positive_highlights": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Specific things that went well this week. Leave empty if nothing "
+                        "genuinely stands out."
+                    ),
+                },
+            },
+            "required": [
+                "overview",
+                "overall_sentiment",
+                "key_insights",
+                "risks",
+                "recommendations",
+                "positive_highlights",
+            ],
+            "additionalProperties": False,
+        },
+    },
+}

@@ -15,6 +15,7 @@ import { AdminTeamPage } from "./pages/AdminTeamPage";
 import { ProductCxAnalyticsPage } from "./pages/ProductCxAnalyticsPage";
 import { ProductCxFeedbackPage } from "./pages/ProductCxFeedbackPage";
 import { ProductCxSurveysPage } from "./pages/ProductCxSurveysPage";
+import { ProductCxWeeklyReportsPage } from "./pages/ProductCxWeeklyReportsPage";
 import { SurveyManagementPage } from "./pages/SurveyManagementPage";
 
 function LoginRoute() {
@@ -105,6 +106,14 @@ export default function App() {
           element={
             <ProtectedRoute allow={canAccessProductCx}>
               <ProductCxAnalyticsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/product-cx/reports"
+          element={
+            <ProtectedRoute allow={canAccessProductCx}>
+              <ProductCxWeeklyReportsPage />
             </ProtectedRoute>
           }
         />

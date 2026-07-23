@@ -20,6 +20,7 @@ _TABLES = [
     "survey_questions",
     "survey_responses",
     "survey_answers",
+    "weekly_reports",
 ]
 
 # DIRECT_URL uses SQLAlchemy's "postgresql+psycopg://" dialect+driver syntax

@@ -5,6 +5,7 @@ import type {
   FeedbackSentiment,
   Priority,
   TicketStatus,
+  WeeklyReportSource,
 } from "../api/types";
 
 // Fixed, CVD-friendly hue palette. Order mirrors the fixed category order used
@@ -99,6 +100,16 @@ export const TEAM_ORDER: AssignedTeam[] = [
 ];
 
 export const SENTIMENT_ORDER: FeedbackSentiment[] = ["Positive", "Neutral", "Negative"];
+
+export const WEEKLY_REPORT_SOURCE_COLORS: Record<WeeklyReportSource, string> = {
+  manual: HUES.blue,
+  scheduled: HUES.purple,
+};
+
+export const WEEKLY_REPORT_SOURCE_LABELS: Record<WeeklyReportSource, string> = {
+  manual: "Manual",
+  scheduled: "Scheduled",
+};
 
 export const FEEDBACK_CATEGORY_ORDER: FeedbackCategory[] = [
   "UI/UX",

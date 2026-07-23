@@ -19,6 +19,27 @@ def _admin_login(client, db_session, email="admin@example.com", department=None,
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
+def _seed_feedback(db_session, user_id, *, theme):
+    return (
+        db_session.table("feedback")
+        .insert(
+            {
+                "user_id": user_id,
+                "raw_text": f"feedback about {theme}",
+                "sentiment": "Neutral",
+                "category": "Other",
+                "team": "Customer Success",
+                "theme": theme,
+                "ai_summary": "summary",
+                "ai_reasoning": "reasoning",
+                "ai_confidence": 0.9,
+            }
+        )
+        .execute()
+        .data[0]
+    )
+
+
 def _stub_as_feedback(monkeypatch):
     monkeypatch.setattr(
         chat_router,
@@ -157,6 +178,47 @@ def test_super_admin_and_product_cx_can_access_feedback(client, monkeypatch, db_
     response = client.get("/feedback", headers=product_cx_headers)
     assert response.status_code == 200
     assert len(response.json()) == 1
+
+
+def test_feedback_metrics_merges_normalized_theme_variants(client, db_session):
+    """Theme aggregation should merge case/punctuation/plural variants and
+    known synonyms (e.g. "Billing Error"/"Billing Errors"/"Payment Issue")
+    into one canonical bucket, while each feedback row's own `theme` field
+    keeps the AI's original, unmodified text - see
+    backend.services.theme_normalization.
+    """
+    reg = client.post(
+        "/auth/register",
+        json={"name": "Bob", "email": "bob@example.com", "password": "password123"},
+    )
+    user_id = reg.json()["user"]["id"]
+
+    _seed_feedback(db_session, user_id, theme="Billing Error")
+    _seed_feedback(db_session, user_id, theme="Billing Errors")
+    _seed_feedback(db_session, user_id, theme="Payment Issue")
+    _seed_feedback(db_session, user_id, theme="payment error.")
+    _seed_feedback(db_session, user_id, theme="UI Improvements")
+    _seed_feedback(db_session, user_id, theme="UI Improvements")
+    _seed_feedback(db_session, user_id, theme="ui improvements!!")
+
+    headers = _admin_login(client, db_session, email="cx@example.com", role=Role.PRODUCT_CX)
+    response = client.get("/feedback/metrics", headers=headers)
+
+    assert response.status_code == 200
+    top_themes = {t["theme"]: t["count"] for t in response.json()["top_themes"]}
+    assert top_themes == {"Billing Issues": 4, "UI Improvements": 3}
+
+    # Each individual record still reports the AI's original raw theme text.
+    raw_themes = sorted(f["theme"] for f in client.get("/feedback", headers=headers).json())
+    assert raw_themes == [
+        "Billing Error",
+        "Billing Errors",
+        "Payment Issue",
+        "UI Improvements",
+        "UI Improvements",
+        "payment error.",
+        "ui improvements!!",
+    ]
 
 
 def test_product_cx_account_cannot_log_in_via_admin_login(client, db_session):

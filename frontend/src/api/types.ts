@@ -231,6 +231,31 @@ export interface FeedbackMetrics {
   date_range: DateRange;
 }
 
+export interface SentimentBreakdownEntry {
+  count: number;
+  pct: number;
+}
+
+export type WeeklyReportSource = "scheduled" | "manual";
+
+export interface WeeklyReport {
+  id: number;
+  period_start: string;
+  period_end: string;
+  total_feedback: number;
+  sentiment_breakdown: Record<string, SentimentBreakdownEntry>;
+  top_themes: TopTheme[];
+  overview: string;
+  overall_sentiment: string;
+  key_insights: string[];
+  risks: string[];
+  recommendations: string[];
+  positive_highlights: string[];
+  generated_by: WeeklyReportSource;
+  model_used: string | null;
+  created_at: string;
+}
+
 export interface AdminSummary {
   id: number;
   name: string;

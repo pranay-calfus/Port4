@@ -157,8 +157,8 @@ function CustomerRegisterForm() {
 function AdminLoginForm() {
   const { adminLogin } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState(() => import.meta.env.VITE_ADMIN_EMAIL ?? "");
+  const [password, setPassword] = useState(() => import.meta.env.VITE_ADMIN_PASSWORD ?? "");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -179,7 +179,9 @@ function AdminLoginForm() {
   return (
     <Card>
       <p className="mb-4 text-xs text-ink-muted">
-        Super adminmust be configured from backend check: backend/create_admin.py.
+        Admin accounts are provisioned by a super-admin (Admin → Team) or seeded automatically on
+        backend startup from its SUPER_ADMIN_EMAIL/SUPER_ADMIN_PASSWORD environment variables (see
+        backend/seed.py) - no manual setup needed for the seeded account below.
       </p>
       <form onSubmit={handleSubmit} className="space-y-4">
         <TextField
@@ -208,8 +210,8 @@ function AdminLoginForm() {
 function ProductCxLoginForm() {
   const { productCxLogin } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState(() => import.meta.env.VITE_PRODUCT_CX_EMAIL ?? "");
+  const [password, setPassword] = useState(() => import.meta.env.VITE_PRODUCT_CX_PASSWORD ?? "");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -229,6 +231,11 @@ function ProductCxLoginForm() {
 
   return (
     <Card>
+      <p className="mb-4 text-xs text-ink-muted">
+        Product & CX accounts are provisioned by a super-admin (Admin → Team) or seeded
+        automatically on backend startup from its PRODUCT_CX_EMAIL/PRODUCT_CX_PASSWORD environment
+        variables (see backend/seed.py) - no manual setup needed for the seeded account below.
+      </p>
       <form onSubmit={handleSubmit} className="space-y-4">
         <TextField
           label="Email"

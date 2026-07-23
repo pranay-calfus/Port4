@@ -210,6 +210,26 @@ class FeedbackDetailOut(FeedbackOut):
     user: UserOut
 
 
+class WeeklyReportOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    period_start: datetime
+    period_end: datetime
+    total_feedback: int
+    sentiment_breakdown: dict
+    top_themes: list
+    overview: str
+    overall_sentiment: str
+    key_insights: list[str]
+    risks: list[str]
+    recommendations: list[str]
+    positive_highlights: list[str]
+    generated_by: str
+    model_used: str | None
+    created_at: datetime
+
+
 class EscalateTicketResult(BaseModel):
     type: Literal["ticket"] = "ticket"
     ticket: TicketDetailOut

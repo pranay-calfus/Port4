@@ -7,6 +7,7 @@ Port4 is a customer support ticketing app. Instead of a person reading every inc
 - [What It Does](#what-it-does)
 - [How It Works](#how-it-works)
 - [Getting Started](#getting-started)
+- [Testing](#testing)
 - [Tech Stack](#tech-stack)
 - [Project Reflection (Mentor Q&A)](#project-reflection-mentor-qa)
   - [Understanding the AI](#understanding-the-ai)
@@ -77,6 +78,20 @@ python -m backend.create_admin --name "Ops Admin" --email admin@example.com --pa
 ```
 
 Without an OpenAI key, everything still runs - registration, login, browsing tickets - except a new ticket won't get auto-classified (it's still created, just left for manual triage).
+
+## Testing
+
+```bash
+pytest                    # the everyday suite - fully mocked, no network calls, no API key needed
+```
+
+`pytest` alone runs the whole mocked suite (`tests/`), including the AI reliability layer (`tests/test_tool_classifier.py`, `tests/test_retry.py`, `tests/test_openai_provider.py`) driven by scripted fake responses - fast, free, and deterministic, safe to run in CI with no secrets configured.
+
+`tests/integration/test_feedback_classifier_live.py` additionally exercises the real feedback classifier against the real OpenAI API - the actual system prompt, the actual forced-tool-call schema, and a real network round trip, rather than a scripted response. These are opt-in (skipped by default) since they cost tokens and take real network time:
+
+```bash
+RUN_LIVE_LLM_TESTS=1 pytest tests/integration -q   # needs a real OPENAI_API_KEY in .env
+```
 
 ## Tech Stack
 

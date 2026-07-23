@@ -192,6 +192,58 @@ class Feedback(Base):
     )
 
 
+class WeeklyReport(Base):
+    """A generated weekly feedback insight report - see
+    backend/services/weekly_summary_service.py. Every generation (scheduled
+    or manual) always INSERTs a new row rather than updating one in place,
+    so past reports stay available as history instead of being overwritten.
+    No DB-level uniqueness on (period_start, period_end): a manual "generate
+    now" is allowed to produce more than one snapshot for the same/
+    overlapping window (e.g. a Product & CX user regenerating the same day
+    after new feedback comes in) - only the Monday scheduler job needs
+    "don't regenerate a period that already has a report", and it enforces
+    that itself at the application level (see
+    weekly_summary_service.generate_report_for_previous_week).
+    """
+
+    __tablename__ = "weekly_reports"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # index=True: get_latest_report/list_reports both order by period_end.
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_end: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    total_feedback: Mapped[int] = mapped_column(nullable=False)
+    # {"Positive": {"count": int, "pct": float}, ...} - deterministic Python
+    # aggregation over the period's feedback rows, not AI-generated (see
+    # ticket_router.services.weekly_summary_service.generate_weekly_narrative's
+    # docstring for why counting is kept separate from narrative generation).
+    sentiment_breakdown: Mapped[dict] = mapped_column(JSON, nullable=False)
+    # [{"theme": str, "count": int}, ...], same shape/ranking as
+    # ticket_service._top_themes - also deterministic, not AI-generated.
+    top_themes: Mapped[list] = mapped_column(JSON, nullable=False)
+    # Everything below is the AI-generated narrative - see
+    # ticket_router.models.WeeklySummaryResult for the field-by-field
+    # rationale.
+    overview: Mapped[str] = mapped_column(Text, nullable=False)
+    overall_sentiment: Mapped[str] = mapped_column(Text, nullable=False)
+    key_insights: Mapped[list] = mapped_column(JSON, nullable=False)
+    risks: Mapped[list] = mapped_column(JSON, nullable=False)
+    recommendations: Mapped[list] = mapped_column(JSON, nullable=False)
+    positive_highlights: Mapped[list] = mapped_column(JSON, nullable=False)
+    # "scheduled" (the Monday-morning APScheduler job) or "manual" (a
+    # Product & CX user clicking "Generate Report" on demand).
+    generated_by: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Which model actually produced the narrative - None for the
+    # zero-feedback period (no AI call is made; see
+    # backend.services.weekly_summary_service.generate_weekly_report).
+    model_used: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class Survey(Base):
     __tablename__ = "surveys"
 

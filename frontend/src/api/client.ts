@@ -23,6 +23,7 @@ import type {
   TicketOut,
   TokenResponse,
   UserOut,
+  WeeklyReport,
 } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -315,6 +316,28 @@ export function adminSurveyAnalytics(
 
 export function listActiveSurveys(token: string) {
   return request<SurveyDetail[]>("GET", "/surveys/active", { token });
+}
+
+// --- Weekly reports ---
+
+export async function getLatestWeeklyReport(token: string): Promise<WeeklyReport | null> {
+  try {
+    return await request<WeeklyReport>("GET", "/reports/weekly/latest", { token });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+export function listWeeklyReports(token: string, limit?: number) {
+  return request<WeeklyReport[]>("GET", "/reports/weekly", { token, query: { limit } });
+}
+
+export function generateWeeklyReport(
+  token: string,
+  dateRange: { date_from?: string; date_to?: string } = {}
+) {
+  return request<WeeklyReport>("POST", "/reports/weekly/generate", { token, query: dateRange });
 }
 
 export function submitSurveyResponse(

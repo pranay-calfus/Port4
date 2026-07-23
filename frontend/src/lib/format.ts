@@ -1,3 +1,11 @@
+export function formatDate(isoString: string): string {
+  return new Date(isoString).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 export function formatDateTime(isoString: string): string {
   const date = new Date(isoString);
   const datePart = date.toLocaleDateString("en-US", {

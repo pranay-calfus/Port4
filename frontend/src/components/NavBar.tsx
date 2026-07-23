@@ -27,6 +27,7 @@ const PRODUCT_CX_LINKS = [
   { to: "/product-cx/feedback", text: "Feedback" },
   { to: "/product-cx/surveys", text: "Surveys" },
   { to: "/product-cx/analytics", text: "Feedback Analytics" },
+  { to: "/product-cx/reports", text: "Weekly Reports" },
 ];
 
 /** Sectioned navigation clearly separating Support Operations from
